@@ -1,0 +1,4 @@
+interface:
+  display_name: "Job Hunter 求职助手"
+  short_description: "寻找匹配岗位、按当前策略准备投递，并追踪回复、面试与定时运行进度"
+  default_prompt: "使用 $job-hunter，根据我的资料先找 5 个合适岗位，说明匹配依据和待确认事项。"

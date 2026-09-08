@@ -1,0 +1,11 @@
+.job-hunter/
+__pycache__/
+*.py[cod]
+.venv/
+demo-data/
+dist/
+*.zip
+state.json
+policy.json
+profile.md
+android-device.json

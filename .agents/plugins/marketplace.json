@@ -1,0 +1,12 @@
+{
+  "name": "job-hunter",
+  "interface": {"displayName": "Job Hunter"},
+  "plugins": [
+    {
+      "name": "job-hunter",
+      "source": {"source": "local", "path": "./"},
+      "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+      "category": "Productivity"
+    }
+  ]
+}
