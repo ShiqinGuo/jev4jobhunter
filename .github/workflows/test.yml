@@ -14,5 +14,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: node -e "const {chromium}=require('playwright'); chromium.launch({headless:true}).then(b=>b.close()).catch(e=>{console.error(e);process.exit(1)})"
       - run: python -B -m unittest discover -s tests -v
       - run: python -B scripts/package.py --output job-hunter-preview.zip

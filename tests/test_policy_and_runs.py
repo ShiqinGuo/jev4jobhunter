@@ -44,6 +44,70 @@ class Fixture(unittest.TestCase):
 
 
 class PolicyTests(Fixture):
+    def test_platform_default_greet_reserves_without_inventing_message_content(self):
+        request = self.request()
+        request.update(kind='greet', contentMode='platform-default', content=None)
+        request['oneShotAuthorization'] = self.one_shot(request)
+        action = store.begin(self.root, self.token, request)
+        saved = store.load_state(self.root)['actions'][action['id']]
+        self.assertIsNone(saved['content'])
+        self.assertIsNone(saved['observedContent'])
+        self.assertIsNone(saved['audit'])
+        self.assertEqual(saved['contentMode'], 'platform-default')
+        self.assertTrue(store.check_action(self.root, self.token, action['id'])['ready'])
+        self.assertEqual(store.load_policy(self.root)['authorization']['greet'], 'draft')
+        with self.assertRaisesRegex(store.StoreError, 'duplicate-or-unresolved'):
+            store.begin(self.root, self.token, request)
+
+    def test_platform_default_keeps_authorization_required(self):
+        request = self.request()
+        request.update(kind='greet', contentMode='platform-default', content='')
+        with self.assertRaisesRegex(store.StoreError, 'authorization-required'):
+            store.begin(self.root, self.token, request)
+        self.assertEqual(store.load_state(self.root)['actions'], {})
+
+    def test_platform_default_rejects_other_actions_and_invented_materials(self):
+        self.allow()
+        cases = [
+            ({'kind': 'reply'}, 'only-supports-boss-greet'),
+            ({'kind': 'commitment'}, 'only-supports-boss-greet'),
+            ({'platform': 'other', 'targetKey': 'other:job'}, 'only-supports-boss-greet'),
+            ({'content': '平台默认招呼'}, 'content-must-be-unobserved'),
+            ({'observedContent': 'invented opener'}, 'cannot-predeclare-observed-content'),
+            ({'answers': {'question': 'answer'}}, 'cannot-include-other-materials'),
+            ({'attachments': ['not-a-real-file.pdf']}, 'cannot-include-other-materials'),
+            ({'contentMode': 'unknown'}, 'invalid-content-mode'),
+        ]
+        for changes, error in cases:
+            with self.subTest(changes=changes):
+                request = self.request()
+                request.update(kind='greet', contentMode='platform-default', content=None)
+                request.update(changes)
+                with self.assertRaisesRegex(store.StoreError, error):
+                    store.begin(self.root, self.token, request)
+        self.assertEqual(store.load_state(self.root)['actions'], {})
+
+    def test_custom_messages_still_require_text(self):
+        self.allow()
+        for kind in ('greet', 'reply', 'commitment'):
+            with self.subTest(kind=kind):
+                request = self.request()
+                request.update(kind=kind, content='')
+                with self.assertRaisesRegex(store.StoreError, 'message-content-required'):
+                    store.begin(self.root, self.token, request)
+
+    def test_profile_change_after_begin_rejects_preclick_action_check(self):
+        self.allow()
+        profile = self.root / 'profile.md'
+        profile.write_text('Formal experience: four months. Target: Python backend.\n', encoding='utf-8')
+        action = store.begin(self.root, self.token, self.request())
+        self.assertTrue(store.check_action(self.root, self.token, action['id'])['ready'])
+        original_action = deepcopy(store.load_state(self.root)['actions'][action['id']])
+        profile.write_text('Formal experience: one year. Target: data platform backend.\n', encoding='utf-8')
+        with self.assertRaisesRegex(store.StoreError, 'profile-changed'):
+            store.check_action(self.root, self.token, action['id'])
+        self.assertEqual(store.load_state(self.root)['actions'][action['id']], original_action)
+
     def test_default_draft_does_not_reserve_or_send(self):
         with self.assertRaisesRegex(store.StoreError, 'authorization-required'):
             store.begin(self.root, self.token, self.request())

@@ -1,6 +1,6 @@
 ---
 name: job-hunter
-description: 帮个人求职者发现和比较职位、按简历评估匹配度、准备或执行已授权的投递与招聘消息回复、追踪面试和申请进度。支持招聘网站及公司招聘页，优先使用 Kimi WebBridge，不可用时使用当前 Agent 的浏览器能力。用于找工作、筛选岗位、投简历、处理 HR 消息和查看求职进展；单纯润色简历或模拟面试不使用。
+description: 帮个人求职者发现和比较职位、按简历评估匹配度、准备或执行已授权的投递与招聘消息回复、追踪面试和申请进度。支持招聘网站及公司招聘页，按用户指定、本方案已核验通道和当前实际能力选择浏览器。用于找工作、筛选岗位、投简历、处理 HR 消息和查看求职进展；单纯润色简历或模拟面试不使用。
 ---
 
 # Job Hunter
@@ -11,13 +11,14 @@ description: 帮个人求职者发现和比较职位、按简历评估匹配度�
 
 | 意图 | 执行方式 | 按需读取 |
 |---|---|---|
-| 初始化 / 更新画像 | 提取已有事实，补齐必要偏好，保留数据 | [profile-schema.md](references/profile-schema.md)、[workflows.md](references/workflows.md) 的 setup |
+| 初始化 / 更新画像 / 明确投递策略 | 提取已有事实，用具体候选引导补齐影响决策的信息 | [intake.md](references/intake.md)、[profile-schema.md](references/profile-schema.md)、[workflows.md](references/workflows.md) 的 setup |
 | 找岗位 / 比较 / `search` | 读取、筛选、输出候选及推荐理由 | [matching.md](references/matching.md) |
 | 检查浏览器 / `recon` | 验证可用能力和页面状态 | [drivers.md](references/drivers.md) |
 | 跑一轮 / `daily` | 处理待办、新消息和候选；按授权决定是否外发 | [workflows.md](references/workflows.md) 的 daily |
 | 回复 HR / `reply` | 读完整上下文，起草或发送本次授权的回复 | [workflows.md](references/workflows.md) 的 reply |
 | 投选中职位 / `apply` | 准备具体申请，执行已授权的外发 | [workflows.md](references/workflows.md) 的 apply |
 | 看进度 / `report` | 读取本地状态与日志，标明数据时间 | [state-schema.md](references/state-schema.md) |
+| 复盘投递效果 / 调整筛选 | 区分招聘反馈与推断，形成可执行的筛选调整 | [intake.md](references/intake.md) 的反馈复盘、[matching.md](references/matching.md) |
 | 恢复接管 / `resume` | 唯一定位会话，更新交接状态 | [workflows.md](references/workflows.md) 的 resume |
 | 定时运行 / `schedule` | 使用当前宿主实际提供的调度器 | [workflows.md](references/workflows.md) 的 schedule |
 | 配置 / 安装诊断 / 恢复 | 查看生效配置、安装副本与运行记录 | [runtime.md](references/runtime.md) |
@@ -26,14 +27,18 @@ description: 帮个人求职者发现和比较职位、按简历评估匹配度�
 
 用户要求先批量投递再看会话时，按 `policy.search.batchBeforeReply` 执行 [workflows.md](references/workflows.md) 的批量投递优先流程；批次进度跨运行保留，批量不是每日上限。面试进度只依据招聘方明确邀请与双方确认安排，不能把投递或我方约面询问计作已进入面试。
 
+首次建立投递策略、反复遇到资料缺口或招聘反馈暴露条件错配时，按 [intake.md](references/intake.md) 引导。先读已有材料，只问会改变当前筛选或回复的缺项；用户无需自行总结招聘策略，也不必填完问卷才能搜索。
+
 ## 启动与浏览器选择
 
 1. 数据目录按本次明确路径 → `JOB_HUNTER_HOME` → `~/.job-hunter` 解析。多个求职方案使用不同目录，并确认当前平台账号对应本方案。
 2. 用 `store.py effective-config` 读取当前 policy 与指纹，profile.md 保存事实，policy.json 保存执行策略；历史对话和日志只作来源，不维护重复策略。用户新更正先按 [runtime.md](references/runtime.md) 合并并保存。缺画像时仍可搜索，依赖缺失事实的外发才需补资料。
-   用户最新排除项、指定城市和筛选宽严优先于旧候选与搜索游标。按实际招聘项目处理跨猎头重复，不用换发布公司或职位 ID 绕过排除；列表需滚动加载更多，首屏不是全部结果。
-3. 涉及页面才读 [drivers.md](references/drivers.md)。优先 Kimi WebBridge；备用通道以本方案的实测能力与用户最新选择为准，不自动切回已确认无法操作该站点的通道。各通道遵守自己的工具说明。没有浏览器也能分析用户提供的 JD、整理草稿和查看本地报告。
+   用户最新排除项、指定城市和筛选宽严优先于旧候选与搜索游标。按实际招聘项目处理跨猎头重复，不用换发布公司或职位 ID 绕过排除。先在平台设置可表达的硬筛选，再处理当前自然加载的列表；当前批次处理完才正常滚动一次，首屏不是全部结果，也不能提前加载多批。
+3. 涉及页面先读 [browsing-safety.md](references/browsing-safety.md) 和 [drivers.md](references/drivers.md)，并在接触浏览器前检查当前账号上下文适用的本地访问限制。按用户本次明确指定 → 与当前站点、账号和环境匹配的本方案已核验通道 → 当前实际可用的浏览器能力选择。复用已选通道，确认它无法完成本轮必要操作时再探测备用；不每轮切回已确认失败的通道。各通道遵守自己的工具说明；切通道不能绕过访问限制。没有浏览器也能分析用户提供的 JD、整理草稿和查看本地报告。
 4. Boss 使用 [platform-boss.md](references/platform-boss.md)；其他网站使用 [platform-generic.md](references/platform-generic.md)。平台笔记是线索，实时观察决定操作。无 JavaScript 执行能力也应能完成可见页面流程。
 5. 修改本地状态前读 [state-schema.md](references/state-schema.md)，用随 Skill 分发的 [store.py](scripts/store.py) 获取运行锁。同一目录一次只有一个写入者；报告可直接只读。没有 Python 时可继续只读分析，不手写替代并发锁或外发状态机。
+
+正式单步入口首版适配 Boss 结构化搜索、逐项详情和“立即沟通”。普通回复、附件、任意直链或其他站点的网页副作用尚未接入时，先完成本地材料并记录 unsupported；既有离线 outbox 可继续使用，但不能以裸传输绕过浏览安全入口。能力缺口不改变已有授权，适配完成后仍按原授权推进。
 
 ## 授权与事实
 
@@ -48,15 +53,15 @@ description: 帮个人求职者发现和比较职位、按简历评估匹配度�
 
 1. **准备**：确认账号、公司、职位或收件人；读 JD / 对话；生成完整文本、表单答案及附件路径。将材料来源、待答问题与发送范围整理成可审阅结果。
 2. **检查**：确认授权、配额、用户接管状态和是否已有成功或待核对记录。新沟通、申请及发送简历前重查用户最新排除项，包括 [matching.md](references/matching.md) 的发布者类型规则；旧候选和已联系记录不能绕过。可输入文本通过 [audit_gate.py](scripts/audit_gate.py)；长度上限以当前页面为准，不按所有平台统一截断。脚本只检查机械问题，不能证明事实正确或代表用户同意。
-3. **登记**：在任何可能触发提交的点击前，用 `store.py begin` 持久化 `pending`，按 [runtime.md](references/runtime.md) 记录账号、目标事实及长期或一次性授权。返回失败则不点击。对于自动招呼语，先核对平台即将发送的文本；无法确定时保留候选。
-4. **操作**：提交前执行 `store.py check-action`，重查策略与附件版本；再核对页面目标身份和编辑器 / 表单内容，用所选通道点击、填写或上传。页面变化、用户新消息或手动编辑可能使旧草稿失效。同名或同属性元素必须限定当前可见表单，不能点击隐藏弹窗中的重复按钮。
+3. **登记**：在任何可能触发提交的点击前，用 `store.py begin` 持久化 `pending`，按 [runtime.md](references/runtime.md) 记录账号、目标事实及长期或一次性授权。返回失败则不点击。自动招呼语优先核对当前账号的可见设置；用户已授权使用 Boss 原生沟通流程且文本不可见时，按 [platform-boss.md](references/platform-boss.md) 登记 `contentMode: "platform-default"`，文本保持未知，不用占位消息或旧账号文案替代。
+4. **操作**：提交前执行 `store.py check-action`，重查策略与附件版本；再核对页面目标身份和编辑器 / 表单内容，经 [browser_actions.py](scripts/browser_actions.py) 的单步入口用所选通道点击、填写或上传，同时检查浏览步骤与平台限制。页面变化、用户新消息或手动编辑可能使旧草稿失效。同名或同属性元素必须限定当前可见表单，不能点击隐藏弹窗中的重复按钮。
 5. **核验**：看到匹配的新气泡、申请回执或已提交状态才记 `succeeded`。点击成功、输入框清空、进入聊天都不能单独证明发送成功。能确认未提交才记 `failed`；超时、断线、回执不明确记 `unknown`，保留额度并先只读核对，不能换文本或换浏览器再发一次。
 
 ## 故障与收尾
 
-- 登录丢失、验证码、安全验证：暂停外发，按 [drivers.md](references/drivers.md) 的登录恢复流程处理；需要用户的环节保留现场。其他平台和本地工作可继续。隔天不代表验证已经解除。
-- 平台限额或频繁提示：停止受影响的外发，记录平台与恢复条件。可读内容仍可整理；不绕限制。
-- 普通加载 / 定位失败：刷新观察并有限重试一次；无结果只停当前项。已点过提交的操作走 `unknown`，不能按普通读取重试。
+- 登录丢失与安全限制先区分：普通登录失效按 [drivers.md](references/drivers.md) 的已授权登录恢复流程处理；访问受限、验证码或安全验证先按 [browsing-safety.md](references/browsing-safety.md) 停止该平台的新页面请求，记录实际恢复条件。已有登录不能证明原账号限制解除，跨日也不能自动解除。用户明确指定独立新账号且当前页面正常时，按 select-account-context 记录账号归属，不能无条件把旧账号限制套到新账号。
+- 平台发送配额只停止对应发送；访问受限或异常行为提示则同时停止新导航、滚动、刷新和详情打开。可以读取已加载页面与本地材料，不借“只读”继续访问；后续心跳先查当前账号上下文适用的本地限制，未到恢复条件不试探。
+- 普通加载 / 定位失败：先被动观察，排除限制或异常等待页后才有限刷新恢复一次；无结果只停当前项。已点过提交的操作走 `unknown`，不能按普通读取重试。
 - 用户手动接管的线程不自动回复。出现无法解释的我方消息时先核对 outbox / 历史日志；无法归属则暂挂该线程，不因为拿不到完整历史就永久标记接管。
 - 标签关闭遵守所选通道规则；Kimi WebBridge 仅在用户要求关闭时清理会话。用户原有标签、登录现场和结果待核对页面保留。按 token 释放运行锁；崩溃残留不得仅按时间自动抢锁。
 - 输出已完成、候选 / 草稿位置、待核对和待用户决定事项。统计区分候选、打招呼、申请成功、回复成功与结果未知。通知优先宿主；只有用户配置并授权的渠道才外推，消息默认仅含摘要。

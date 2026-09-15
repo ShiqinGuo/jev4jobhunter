@@ -1,7 +1,7 @@
 {
   "name": "job-hunter",
-  "version": "0.3.0",
-  "description": "面向个人求职的通用助手：发现和比较职位、准备或执行已授权的申请与回复、追踪进度，优先使用 Kimi WebBridge，不可用时使用当前 Agent 的浏览器能力。",
+  "version": "0.4.0",
+  "description": "面向个人求职的通用助手：发现和比较职位、准备或执行已授权的申请与回复、追踪进度，按用户指定、本方案已核验通道和当前实际能力选择浏览器。",
   "author": {
     "name": "shaneguo"
   },

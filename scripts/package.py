@@ -8,7 +8,7 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 def package(root: Path, output: Path) -> dict:
     files = []
-    for name in ('README.md', 'ROADMAP.md', 'CHANGELOG.md', 'CONTRIBUTING.md', 'VALIDATION.md', 'LICENSE', '.gitignore',
+    for name in ('README.md', 'ROADMAP.md', 'CHANGELOG.md', 'CONTRIBUTING.md', 'VALIDATION.md', 'LICENSE', '.gitignore', 'package.json', 'package-lock.json',
                  '.agents/plugins/marketplace.json',
                  '.codex-plugin/plugin.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json',
                  '.github/workflows/test.yml', 'scripts/package.py', 'scripts/audit-gate.ps1', 'scripts/notify.ps1'):

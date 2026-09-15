@@ -125,6 +125,39 @@ def require_token(state: dict, token: str | None) -> None:
         raise StoreError("run-token-mismatch")
 
 
+def active_account_context(state: dict, platform: str) -> dict:
+    registry = state.get('accountContexts', {}).get(platform, {})
+    return registry.get('contexts', {}).get(registry.get('activeContextId'), {})
+
+
+def applicable_blocks(state: dict, platform: str):
+    """Yield restrictions whose recorded scope applies to the selected context."""
+    context_id = active_account_context(state, platform).get('id')
+    entries = [(scope, state['blocks'].get(scope, {})) for scope in ('*', platform)]
+    entries.extend((platform, block) for block in state.get('contextBlocks', {}).get(platform, {}).values())
+    for scope, block in entries:
+        if not block or not block.get('active', True):
+            continue
+        if block.get('applicability') == 'all-contexts' and block.get('scopeEvidence'):
+            yield scope, block
+        elif block.get('accountContextId'):
+            if block['accountContextId'] == context_id:
+                yield scope, block
+        elif block.get('appliesToContextIds') is not None:
+            if context_id in block['appliesToContextIds']:
+                yield scope, block
+        else:
+            # Unscoped legacy entries need an explicit audited attribution.
+            yield scope, block
+
+
+def check_account_context(state: dict, request: dict) -> None:
+    context = active_account_context(state, request['platform'])
+    if context and (request.get('accountContextId') != context['id'] or
+                    request.get('accountLabel') != context['accountLabel']):
+        raise StoreError('active-account-context-mismatch')
+
+
 def local_now(policy: dict) -> datetime:
     value = policy.get("timezone", "local")
     if value == "local":
@@ -201,11 +234,15 @@ def initialize(root: Path) -> dict:
         return {"created": created, "dataDir": str(root)}
 
 
+def profile_fingerprint(root: Path) -> str | None:
+    profile = root / 'profile.md'
+    return hashlib.sha256(profile.read_bytes()).hexdigest() if profile.is_file() else None
+
+
 def effective_config(root: Path) -> dict:
     policy = load_policy(root)
-    profile = root / 'profile.md'
     return {'policy': policy, 'policyFingerprint': fingerprint(policy),
-            'profileFingerprint': hashlib.sha256(profile.read_bytes()).hexdigest() if profile.is_file() else None,
+            'profileFingerprint': profile_fingerprint(root),
             'factsSource': 'profile.md', 'executionSource': 'policy.json'}
 
 
@@ -340,15 +377,40 @@ def used_today(state: dict, day: str, kind: str) -> int:
     return count
 
 
+def validate_content_mode(request: dict) -> bool:
+    """A platform-owned BOSS opener is an action, not an invented message draft."""
+    mode = request.get('contentMode', 'text')
+    if mode not in ('text', 'platform-default'):
+        raise StoreError('invalid-content-mode')
+    if mode != 'platform-default':
+        return False
+    if request.get('platform') != 'boss' or request.get('kind') != 'greet':
+        raise StoreError('platform-default-only-supports-boss-greet')
+    if request.get('content') not in (None, ''):
+        raise StoreError('platform-default-content-must-be-unobserved')
+    if request.get('observedContent') is not None:
+        raise StoreError('platform-default-cannot-predeclare-observed-content')
+    if request.get('attachments') or request.get('answers'):
+        raise StoreError('platform-default-greet-cannot-include-other-materials')
+    return True
+
+
 def begin(root: Path, token: str, request: dict, limit: int | None = None) -> dict:
     with transaction(root):
         state = load_state(root)
         require_token(state, token)
         policy = load_policy(root)
+        profile_hash = profile_fingerprint(root)
+        browsing = request.get('browsingContext', {})
+        if not isinstance(browsing, dict):
+            raise StoreError('invalid-browsing-context')
+        if 'profileFingerprint' in browsing and browsing['profileFingerprint'] != profile_hash:
+            raise StoreError('profile-changed-before-begin')
         kind = required_string(request, "kind")
         if kind not in KINDS:
             raise StoreError("invalid-action-kind")
         platform = required_string(request, "platform")
+        check_account_context(state, request)
         target = required_string(request, "targetKey")
         required_string(request, "authorizationEvidence")
         required_string(request, "context")
@@ -376,8 +438,7 @@ def begin(root: Path, token: str, request: dict, limit: int | None = None) -> di
         thread = state["threads"].get(target, {})
         if thread.get("needsReview") or (thread.get("humanTakenOver") and request.get("oneShotHandover") is not True):
             raise StoreError("thread-paused")
-        for scope in ("*", platform):
-            block = state["blocks"].get(scope, {})
+        for scope, block in applicable_blocks(state, platform):
             if block and block.get("active", True) and kind in block.get("kinds", KINDS):
                 raise StoreError(f"platform-blocked:{scope}")
         moment = local_now(policy)
@@ -398,10 +459,11 @@ def begin(root: Path, token: str, request: dict, limit: int | None = None) -> di
         day = moment.date().isoformat()
         if cap is not None and used_today(state, day, kind) >= cap:
             raise StoreError("daily-limit-reached")
-        content = request.get("content", "")
+        platform_default = validate_content_mode(request)
+        content = '' if platform_default else request.get("content", "")
         if not isinstance(content, str):
             raise StoreError("invalid-content")
-        if kind in ("greet", "reply", "commitment") and not content.strip():
+        if not platform_default and kind in ("greet", "reply", "commitment") and not content.strip():
             raise StoreError("message-content-required")
         audit = None
         if content:
@@ -431,7 +493,9 @@ def begin(root: Path, token: str, request: dict, limit: int | None = None) -> di
         action = {**request, "id": action_id, "dedupeKey": dedupe, "date": day,
                   "at": stamp(), "updatedAt": stamp(), "status": "pending",
                   "attachments": stored_files, "audit": audit, "events": [],
-                  "policyFingerprint": fingerprint(policy)}
+                  "policyFingerprint": fingerprint(policy), "profileFingerprint": profile_hash}
+        if platform_default:
+            action.update(content=None, observedContent=None, contentMode='platform-default')
         action["events"].append({"at": action["at"], "status": "pending"})
         state["actions"][action_id] = action
         state["runLock"]["heartbeatAt"] = stamp()
@@ -475,11 +539,16 @@ def check_action(root: Path, token: str, action_id: str) -> dict:
     state = load_state(root)
     require_token(state, token)
     action = state['actions'][action_id]
+    check_account_context(state, action)
     if action['status'] != 'pending':
         raise StoreError('only-pending-actions-can-submit')
     policy = load_policy(root)
     if action.get('policyFingerprint') != fingerprint(policy):
         raise StoreError('policy-changed-before-submit')
+    if 'profileFingerprint' not in action:
+        raise StoreError('profile-fingerprint-missing:reconcile-existing-action-only')
+    if action['profileFingerprint'] != profile_fingerprint(root):
+        raise StoreError('profile-changed-before-submit')
     moment = local_now(policy)
     if action['date'] != moment.date().isoformat():
         raise StoreError('prepared-action-date-changed')
@@ -492,12 +561,12 @@ def check_action(root: Path, token: str, action_id: str) -> dict:
         if not allowed:
             raise StoreError('outside-active-hours')
     check_authorization(policy, action)
+    validate_content_mode(action)
     check_target(policy, state, action)
     thread = state['threads'].get(action['targetKey'], {})
     if thread.get('needsReview') or (thread.get('humanTakenOver') and not action.get('oneShotHandover')):
         raise StoreError('thread-paused')
-    for scope in ('*', action['platform']):
-        block = state['blocks'].get(scope, {})
+    for scope, block in applicable_blocks(state, action['platform']):
         if block.get('active', True) and action['kind'] in block.get('kinds', KINDS) and block:
             raise StoreError('platform-blocked:' + scope)
     for file in action['attachments']:

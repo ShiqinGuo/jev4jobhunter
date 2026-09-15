@@ -102,7 +102,7 @@ def check_authorization(policy: dict, request: dict) -> None:
         raise PolicyError('handover-needs-specific-user-grant')
 
 
-def check_target(policy: dict, state: dict, request: dict) -> None:
+def check_target(policy: dict, state: dict, request: dict, *, require_complete: bool = True) -> None:
     """Known exclusions cannot be removed by supplying fresher, contradictory facts."""
     key = request['targetKey']
     thread = state['threads'].get(key, {})
@@ -129,7 +129,7 @@ def check_target(policy: dict, state: dict, request: dict) -> None:
     if not screened:
         return
     search = policy.get('search', {})
-    if exclusions and not companies:
+    if require_complete and exclusions and not companies:
         raise PolicyError('company-unverified')
     if search.get('excludeHeadhunterPosted'):
         if facts.get('publisherType') not in ('direct', 'headhunter', 'unknown', None):
@@ -137,7 +137,7 @@ def check_target(policy: dict, state: dict, request: dict) -> None:
         publishers = {s.get('publisherType', 'unknown') for s in sources}
         if 'headhunter' in publishers:
             raise PolicyError('excluded-headhunter-posted')
-        if facts.get('publisherType') != 'direct' or not facts.get('evidence'):
+        if require_complete and (facts.get('publisherType') != 'direct' or not facts.get('evidence')):
             raise PolicyError('publisher-unverified:read-page-before-submitting')
     groups = {normalized(s['opportunityGroup']) for s in sources if s.get('opportunityGroup')}
     for group in search.get('excludedOpportunityGroups', []):

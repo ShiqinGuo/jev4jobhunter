@@ -9,3 +9,5 @@ state.json
 policy.json
 profile.md
 android-device.json
+
+node_modules/

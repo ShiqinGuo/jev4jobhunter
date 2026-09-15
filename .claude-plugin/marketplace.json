@@ -1,20 +1,20 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "job-hunter",
-  "description": "面向个人求职的通用助手：发现和比较职位、准备或执行已授权的申请与回复、追踪进度，优先使用 Kimi WebBridge，不可用时使用当前 Agent 的浏览器能力。",
+  "description": "面向个人求职的 Agent 插件：按需补齐条件，逐项筛选岗位，执行已授权沟通并保留回执。",
   "owner": {
     "name": "shaneguo"
   },
   "plugins": [
     {
       "name": "job-hunter",
-      "description": "面向个人求职的通用助手：发现和比较职位、准备或执行已授权的申请与回复、追踪进度，优先使用 Kimi WebBridge，不可用时使用当前 Agent 的浏览器能力。",
+      "description": "面向个人求职的 Agent 插件：按需补齐条件，逐项筛选岗位，执行已授权沟通并保留回执。",
       "author": {
         "name": "shaneguo"
       },
       "category": "productivity",
       "source": ".",
-      "version": "0.3.0"
+      "version": "0.4.0"
     }
   ]
 }

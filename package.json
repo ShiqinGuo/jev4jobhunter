@@ -1,0 +1,9 @@
+{
+  "name": "job-hunter-dev",
+  "private": true,
+  "version": "0.4.0",
+  "description": "Offline DOM test dependencies; not required for plugin runtime.",
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

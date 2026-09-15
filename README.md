@@ -1,96 +1,137 @@
-# Job Hunter
+<h1 align="center">Job Hunter</h1>
+<p align="center">在 Agent 对话里找岗位、明确求职策略，并逐项完成已授权的沟通。</p>
+<p align="center">
+  <a href="https://github.com/ShiqinGuo/job-hunter/releases/latest"><img alt="Version" src="https://img.shields.io/github/v/release/ShiqinGuo/job-hunter?color=2563eb"></a>
+  <a href="https://github.com/ShiqinGuo/job-hunter/actions/workflows/test.yml"><img alt="Tests" src="https://github.com/ShiqinGuo/job-hunter/actions/workflows/test.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2563eb"></a>
+</p>
+<p align="center"><a href="#快速开始">快速开始</a> · <a href="#当前支持范围">支持范围</a> · <a href="CHANGELOG.md">更新记录</a> · <a href="https://github.com/ShiqinGuo/job-hunter/issues">反馈问题</a></p>
 
-根据个人简历搜索职位、准备或执行已授权的投递和回复，并追踪面试进度。提供 Codex 插件包装及可独立安装的 Skill。
+**Job Hunter** 是面向个人求职的 Agent 插件，也可作为独立 Skill 使用。你提供简历和目标，Agent 帮你补齐影响筛选的信息、阅读岗位、解释匹配理由，并按明确授权推进沟通。个人资料和执行记录保存在本地目录。
 
-当前版本 **0.3.0**，以 [MIT](LICENSE) 许可证开源。提供授权校验、申请防重、运行恢复和日报补报。本版的自动化逻辑经过隔离测试；网站操作仍需在实际环境验证。
+当前版本 **0.4.0**：新增逐步浏览检查、账号上下文和信息补充引导。可安装到 Codex、Claude Code，或加载到支持 Skill 的宿主；网页执行以已适配的入口为准。
 
-## 开始使用
+## 核心能力
 
-运行脚本需要 Python 3.10+，全部为标准库。网站操作需要实际可用的浏览器通道；默认优先已安装的 Kimi WebBridge，并沿用用户验证过的站点通道。ADB 是可选登录恢复能力。
+| 能力 | 能帮你做什么 |
+|---|---|
+| 求职信息引导 | 从已有简历提取事实，只补问会改变筛选或回复的信息；回答保存后复用 |
+| 有依据的岗位筛选 | 区分硬条件、软偏好和未知项；核对正式工龄、职责与完整 JD |
+| 逐岗位处理 | 先设置平台筛选，再读当前列表；一次打开一个详情，处理完当前批次才继续滚动 |
+| 按授权沟通 | 已有明确授权直接使用；新沟通保留平台回执，结果不明先核对 |
+| 断点与记录 | 保存候选去向、筛选进度、成功和未知动作；中断后继续，不清空历史重投 |
+| 账号上下文 | 按已核验账号与限制范围处理暂停，避免旧账号记录误用于独立账号 |
+| 求职复盘 | 根据已有岗位与沟通证据分析错配，形成筛选建议；不把索简历当作通过面试门槛 |
+| 定时与日报 | 由宿主触发任务，插件记录轮次与交付，支持发现漏跑和补报 |
 
-在新对话指定完整 Skill 路径即可试用：
+## 使用流程
 
-> 读取这个目录下 skills/job-hunter/SKILL.md，根据我的简历在我指定的城市找5个岗位，先给候选和理由。个人数据放在我指定的独立目录。
+```mermaid
+flowchart LR
+    A[简历与求职条件] --> B[补齐关键缺项]
+    B --> C[设置平台筛选]
+    C --> D[当前列表粗筛与去重]
+    D --> E[打开一个岗位详情]
+    E --> F{判断与授权}
+    F -->|合适且已授权| G[发起沟通并核验回执]
+    F -->|不匹配或信息不足| H[跳过或保存待确认项]
+    G --> I[处理下一项]
+    H --> I
+    I --> D
+```
 
-其他常用请求：
+当前自然加载的列表处理完，才滚动一次获取新增岗位。数量目标不改变这个顺序，也不授权批量预取详情。
 
-- “把这家公司和这些别名加入排除名单。”
-- “只准备回复草稿；这三个岗位我明确授权申请。”
-- “使用我已确认的简历，回复这个招聘方的问题。”
-- “检查安装副本、运行锁、未核对发送和漏掉的日报。”
+## 快速开始
 
-默认生成候选和草稿。一次性明确授权可以执行，不必修改长期模式或反复确认。能力不足时说明实际缺口。
+需要支持 Skill 的 Agent 宿主和 **Python 3.10+**。核心 Python 脚本仅使用标准库；执行网页操作还需要当前入口支持的浏览器通道。无需为插件单独配置模型 API Key，模型由宿主提供。
 
-## 安装与升级
+### Codex
 
-插件入口为 `.codex-plugin/plugin.json`。核心 Skill 必须连同 references、scripts、agents 一起安装，不能只复制 SKILL.md。[OpenAI 插件打包文档](https://developers.openai.com/plugins/build/plugins)说明插件结构；[Skill 文档](https://learn.chatgpt.com/docs/build-skills)说明技能机制。
-
-独立 Skill：把 `skills/job-hunter` 整个目录放入宿主支持的 Skill 发现目录，在新对话加载。已有同名副本时先备份并确认目标位置。
-
-Codex 插件：使用提供 `plugin add` 的新版 Codex CLI 执行：
+使用提供 `plugin add` 的 Codex CLI：
 
 ```sh
 codex plugin marketplace add ShiqinGuo/job-hunter
 codex plugin add job-hunter@job-hunter
 ```
 
-仓库中的 `.agents/plugins/marketplace.json` 指向根目录插件。CLI 只有 marketplace 子命令时，在客户端插件目录中安装，或使用客户端附带的新版本可执行文件；PATH 中的旧 npm 版本可能不同。升级时先执行 `codex plugin marketplace upgrade job-hunter`，再执行上面的 add 命令。插件更新后在新对话加载。
+若当前 CLI 没有 `plugin add`，在客户端插件目录中安装，或使用客户端附带的新版可执行文件。升级已有安装时先运行 `codex plugin marketplace upgrade job-hunter`，再运行上面的 `plugin add`。
 
-Claude Code：
+### Claude Code
 
 ```sh
 claude plugin marketplace add ShiqinGuo/job-hunter
 claude plugin install job-hunter@job-hunter
 ```
 
-已有安装使用 `claude plugin marketplace update job-hunter` 和 `claude plugin update job-hunter@job-hunter`，然后重启会话。
+升级使用 `claude plugin marketplace update job-hunter` 和 `claude plugin update job-hunter@job-hunter`。
 
-比较源码与安装副本：
-```sh
-python -B skills/job-hunter/scripts/doctor.py --compare-skill /absolute/path/to/installed/job-hunter
-```
+### 独立 Skill
 
-different 表示文件不一致，不能宣称已同步。可选 --codex 指定原生可执行文件，只查询 plugin --help；Windows PowerShell 包装入口可直接手工运行帮助命令。
+从 [Releases](https://github.com/ShiqinGuo/job-hunter/releases) 下载发布包，将 `skills/job-hunter` **整个目录**放入宿主支持的 Skill 目录，保留 references、scripts 和 agents。也可直接在对话里指定源码路径。
 
-## 数据和执行
+安装或升级后在新对话加载。首次可以这样说：
 
-data-dir 优先级：明确 --data-dir → JOB_HUNTER_HOME → ~/.job-hunter。同一账号共享一个目录，不把个人数据放入插件源码。
+> 根据我的简历和求职条件，先找 5 个合适岗位，说明匹配依据和缺口；暂不发送消息。只问我会影响当前筛选的缺失信息。
 
-- profile.md：当前经历事实和更正来源。
-- policy.json：唯一执行策略，含授权、城市、排除项、文件版本、浏览器与计划。
-- state.json：候选、会话、发送回执、平台暂停和运行记录。
-- logs/、drafts/：个人历史报告、配置备份与草稿。
+需要执行时，把目标和授权说清楚：
 
-```sh
-python -B skills/job-hunter/scripts/store.py --data-dir ./demo-data init
-python -B skills/job-hunter/scripts/store.py --data-dir ./demo-data effective-config
-python -B skills/job-hunter/scripts/doctor.py --data-dir ./demo-data
-```
+> 对这些已筛选通过的岗位，使用平台当前招呼语发起沟通，逐项核验结果。
 
-已有方案用带指纹比较的 set-policy 更新，保留未修改字段。升级继续使用 v2 状态，不清空历史。新动作字段和一次性授权示例见 [运行指南](skills/job-hunter/references/runtime.md)。
+浏览器沿用你指定、且与当前账号和环境匹配的已验证通道。当前可执行适配通过 **Kimi Browser Extension / Kimi WebBridge** 操作 BOSS；先在该浏览器正常登录。其他通道需接入单步入口，不能仅凭存在浏览器工具就宣称支持。
 
-## 定时任务
+## 当前支持范围
 
-插件记录运行，宿主负责触发。让 Agent 按用户时间配置真实宿主任务并核验回执；长期提示引用当前 policy，不复制整套个人条件。
+| 场景 | 0.4.0 状态 |
+|---|---|
+| BOSS 平台筛选、列表、单个详情、默认招呼 | 已接入统一入口；已有一次真实沟通回执验证 |
+| BOSS 自定义招呼、普通回复、附件发送 | 可以准备材料；网页发送尚未接入当前入口，不自动改走裸调用 |
+| 其他招聘网站 / 公司招聘页 | 可分析用户提供的材料；逐站网页操作尚未适配、验收 |
+| 本地策略、授权、防重、恢复与报告 | 已有自动化测试；各项验证口径见验证记录 |
+| 定时执行 | 依赖宿主实际调度能力、电脑和浏览器状态 |
 
-每轮取得锁，查询 run_ledger.py due 并记录 start / finish。脚本区分日报生成与交付；设置 schedule.startDate 后，可发现限定天数内完全漏跑的日报。过期回复时段合并为当前一个检查，旧未知发送继续防重。按批次投递并在平台限额后停止相应动作。
+这版收紧了网页执行入口：旧版本中依赖临时浏览器脚本的操作，不代表已接入新版。**升级前结束当前运行，保留个人数据，在新对话重新加载。**
 
-```sh
-python -B skills/job-hunter/scripts/run_ledger.py --data-dir ./demo-data due
-python -B skills/job-hunter/scripts/store.py --data-dir ./demo-data report --date 2026-09-08
-```
+## 浏览与发送规则
 
-主机睡眠、浏览器断连、短信读取和页面改版是否可恢复，需要当前环境实测。诊断不会保证未来无人值守成功；恢复和交付核验见运行指南。
+- 先用平台可见筛选器缩小范围，不靠不断扩大详情读取追求数量。
+- 当前列表先粗筛与去重；一个详情完成判断及必要回执核验后，再处理下一项。
+- 资料或策略变化会使旧审核失效；成功和未知发送记录继续防重。
+- 访问异常与沟通配额分别记录。适用的访问限制会阻止新导航、滚动、刷新和外发；后续轮次先读本地恢复条件。
+- 单步入口约束经过它的操作，不是浏览器沙箱；不能拦截另一个外部脚本。固定或随机延时均不能证明不会触发限制。
 
-## 验证与打包
+详见 [页面浏览策略](skills/job-hunter/references/browsing-safety.md)。真实验证范围包括一次授权的新沟通及迟到回执核对，不包含 50/150 次连续投递、普通回复或附件发送；不作免封控承诺。
 
-```sh
-python -B -m unittest discover -s tests -v
-python -B scripts/package.py --output ../job-hunter-0.3.0.zip
-```
+## 个人数据与恢复
 
-测试使用临时目录与模拟传输，不触碰求职账号。CI 配置覆盖 Windows / Linux、Python 3.10 / 3.12；本机验证不代表 CI 已运行。打包按明确范围收集源码，排除个人状态、缓存和临时目录，附文件校验清单。
+每个求职方案使用独立目录，按明确的 `--data-dir` → `JOB_HUNTER_HOME` → `~/.job-hunter` 解析。同一账号共享联系历史；独立账号的上下文与适用限制须明确归属。
 
-Boss 的既有现场经验见 [平台参考](skills/job-hunter/references/platform-boss.md)；其他站点走通用只读发现与逐项验证，本版没有逐站点验收。
+| 文件 | 内容 |
+|---|---|
+| `profile.md` | 经历事实、材料来源和用户更正 |
+| `policy.json` | 求职条件、执行策略与授权 |
+| `state.json` | 候选、浏览进度、账号上下文和动作回执 |
+| `logs/`、`drafts/` | 运行记录与待处理材料 |
 
-问题报告优先附 doctor 输出和脱敏复现步骤，不附个人状态、简历、短信和聊天。贡献说明见 [CONTRIBUTING.md](CONTRIBUTING.md)，变更见 [CHANGELOG.md](CHANGELOG.md)，剩余工作见 [ROADMAP.md](ROADMAP.md)。
+发布包不包含个人简历、账号配置、聊天或投递记录。核心状态格式保持 v2，升级保留历史；现有未完成动作先核对，再恢复浏览。
+
+## 文档导航
+
+| 文档 | 内容 |
+|---|---|
+| [信息补充引导](skills/job-hunter/references/intake.md) | 如何从模糊目标形成可执行的筛选条件 |
+| [岗位匹配](skills/job-hunter/references/matching.md) | 年限、薪资、职责、排除项与证据 |
+| [浏览器选择](skills/job-hunter/references/drivers.md) | 通道选择、登录与恢复 |
+| [运行指南](skills/job-hunter/references/runtime.md) | 单步入口、配置、授权与动作命令 |
+| [验证记录](VALIDATION.md) | 离线测试、实际网站结果和未验证范围 |
+| [贡献说明](CONTRIBUTING.md) | 开发、测试和问题反馈 |
+| [维护方向](ROADMAP.md) | 后续适配与验证工作 |
+
+## 最近更新
+
+| 版本 | 日期 | 主要变化 |
+|---|---|---|
+| **0.4.0** | 2026-09-15 | 逐步浏览检查、账号上下文、页面适配、资料变更后重审和信息引导 |
+| 0.3.0 | 2026-09-08 | 结构化授权、申请防重、策略更新、运行恢复与日报补报 |
+
+完整记录见 [CHANGELOG.md](CHANGELOG.md)。欢迎提交脱敏复现和改进建议；项目采用 [MIT](LICENSE) 许可证。
