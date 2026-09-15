@@ -4,6 +4,8 @@
 
 本版区分状态机测试、离线 Chromium 页面行为和真实网站结果。
 
+发布前本地执行 `python -B -X utf8 -m unittest discover -s tests -v`：**147 项通过，0 跳过**（Windows / Python 3.12，34.915 秒）；Plugin 与 Skill 校验通过，65 条相对文档链接有效。发布包构建会逐文件复核内置 SHA-256 清单。
+
 - 核心测试使用临时目录、合成策略和模拟传输；覆盖列表与详情顺序、异常暂停、账号限制归属、资料变更后重审及未知外发恢复。
 - 页面测试使用断网 Chromium 渲染合成 DOM，验证可见筛选控件、详情身份、单次点击、单次滚动和回执解析；不是招聘网站端到端测试。
 - CI 为 Windows / Linux × Python 3.10 / 3.12，安装固定 Playwright 与 Chromium，缺少依赖时失败。发布提交的实际状态查看 GitHub Actions，不以本地结果代替。
