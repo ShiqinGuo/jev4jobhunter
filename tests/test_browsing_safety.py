@@ -12,7 +12,7 @@ SCRIPTS = Path(__file__).resolve().parents[1] / 'skills' / 'job-hunter' / 'scrip
 sys.path.insert(0, str(SCRIPTS))
 import store
 from browsing_safety import Safety, classify
-from browser_actions import Engine
+from browser_actions import Engine, BrowserError
 import boss_page
 
 
@@ -81,6 +81,105 @@ class BrowsingFixture(unittest.TestCase):
 
 
 class BrowsingOrderTests(BrowsingFixture):
+    def recovery_engine(self, replies, calls):
+        def transport(action, args):
+            calls.append((action, args))
+            return replies.pop(0)
+        return Engine(self.root, self.token, 'boss', 'fixture-session-1', transport)
+
+    def test_closed_tab_recovery_preserves_batch_and_outbox(self):
+        self.batch()
+        before = store.load_state(self.root)
+        calls = []
+        engine = self.recovery_engine([
+            {'outcome': 'returned', 'result': {'data': {'success': True, 'tabs': []}}},
+            {'outcome': 'returned', 'result': {'data': {'success': True}}}], calls)
+        result = engine.execute('recover-page')
+        self.assertEqual([a for a, _ in calls], ['list_tabs', 'navigate'])
+        self.assertTrue(calls[1][1]['newTab'])
+        self.assertEqual(result['session'], 'fixture-session-1')
+        after = store.load_state(self.root)
+        self.assertEqual(before['actions'], after['actions'])
+        self.assertEqual(before['browsing']['boss']['batch'], after['browsing']['boss']['batch'])
+        self.assertEqual(before['browsing']['boss']['candidates'], after['browsing']['boss']['candidates'])
+
+    def test_existing_owned_job_page_is_selected_without_navigation(self):
+        calls = []
+        url = 'https://www.zhipin.com/web/geek/jobs?query=python'
+        engine = self.recovery_engine([
+            {'outcome': 'returned', 'result': {'data': {'success': True, 'tabs': [{'url': url}]}}},
+            {'outcome': 'returned', 'result': {'data': {'success': True}}}], calls)
+        engine.execute('recover-page')
+        self.assertEqual(calls, [('list_tabs', {}), ('find_tab', {'url': url})])
+
+    def test_recovery_rejects_access_block_before_any_browser_call(self):
+        self.guard.observe(self.page(body='访问受限'))
+        calls = []
+        with self.assertRaisesRegex(store.StoreError, 'platform-access-blocked'):
+            self.recovery_engine([], calls).execute('recover-page')
+        self.assertEqual(calls, [])
+
+    def test_recovery_rejects_other_session_and_arbitrary_url(self):
+        self.batch()
+        calls = []
+        engine = self.recovery_engine([], calls)
+        with self.assertRaisesRegex(store.StoreError, 'takes-no-url'):
+            engine.execute('recover-page', {'url': 'https://example.com'})
+        engine.safety.session = 'other-session'
+        with self.assertRaisesRegex(store.StoreError, 'saved-kimi-session'):
+            engine.execute('recover-page')
+        self.assertEqual(calls, [])
+
+    def test_unknown_recovery_never_blindly_opens_a_second_tab(self):
+        calls = []
+        listed = {'outcome': 'returned', 'result': {'data': {'success': True, 'tabs': []}}}
+        engine = self.recovery_engine([listed, {'outcome': 'unknown'}, listed], calls)
+        with self.assertRaises(BrowserError):
+            engine.execute('recover-page')
+        with self.assertRaisesRegex(store.StoreError, 'page-recovery-outcome-unknown'):
+            engine.execute('recover-page')
+        self.assertEqual([a for a, _ in calls], ['list_tabs', 'navigate', 'list_tabs'])
+
+    def test_tab_closed_during_selection_can_be_recreated_on_fresh_empty_inventory(self):
+        calls = []
+        engine = self.recovery_engine([
+            {'outcome': 'returned', 'result': {'data': {'success': True, 'tabs': [{'url': 'https://www.zhipin.com/web/geek/jobs'}]}}},
+            {'outcome': 'unknown'},
+            {'outcome': 'returned', 'result': {'data': {'success': True, 'tabs': []}}},
+            {'outcome': 'returned', 'result': {'data': {'success': True}}}], calls)
+        with self.assertRaises(BrowserError):
+            engine.execute('recover-page')
+        engine.execute('recover-page')
+        self.assertEqual([a for a, _ in calls], ['list_tabs', 'find_tab', 'list_tabs', 'navigate'])
+
+    def test_recovery_does_not_abandon_a_pending_submission(self):
+        self.batch()
+        state = store.load_state(self.root)
+        state['browsing']['boss']['pending'] = {'operation': 'submit'}
+        store.write_json(self.root / 'state.json', state)
+        calls = []
+        with self.assertRaisesRegex(store.StoreError, 'reconcile-pending-submit'):
+            self.recovery_engine([], calls).execute('recover-page')
+        self.assertEqual(calls, [])
+
+    def test_read_error_preserves_cause_and_suggests_same_session_recovery(self):
+        cause = {'code': 'tool_error', 'message': 'session tab was closed — navigate first to recreate'}
+        calls = []
+        engine = self.recovery_engine([{'outcome': 'unknown', 'result': {'error': cause}}], calls)
+        with self.assertRaises(BrowserError) as raised:
+            engine.execute('inspect')
+        self.assertEqual(str(raised.exception), 'browser-read-failed')
+        self.assertEqual(raised.exception.detail, cause)
+        self.assertEqual(raised.exception.next_action, 'recover-page')
+        self.assertIsNone(store.load_state(self.root).get('blocks', {}).get('boss'))
+
+    def test_plain_loading_placeholder_is_not_a_security_block(self):
+        page = self.page(body='加载中，请稍候', cards=[], controls=[], loading=True)
+        self.assertEqual(self.guard.observe(page)['classification'], 'loading-or-unsupported')
+        self.assertIsNone(self.guard.status()['accessBlock'])
+        page['body'] = '安全检查，请稍候'
+        self.assertEqual(self.guard.observe(page)['classification'], 'security-check')
+
     def test_resume_context_recovers_route_and_checkpoint_without_browser_or_lock(self):
         self.batch()
         store.run_lock(self.root, 'release', self.token)
@@ -578,7 +677,7 @@ class BrowsingAccessTests(BrowsingFixture):
         self.assertEqual(classify(self.page(body='当前IP存在异常行为')), 'access-restricted')
         self.assertEqual(classify(self.page(body='登录查看完整内容')), 'login-required')
         self.assertEqual(classify({'url': 'https://example.invalid/passport/zp/403', 'body': ''}), 'access-restricted')
-        self.assertEqual(classify({'body': '请稍候', 'url': 'https://example.invalid/'}), 'security-check')
+        self.assertEqual(classify({'body': '请稍候', 'url': 'https://example.invalid/'}), 'loading-or-unsupported')
 
     def test_clear_requires_retry_time_and_same_account_normal_evidence(self):
         self.guard.observe(self.page(body='访问受限，请于 2026-09-16 09:00 后重新核验'))

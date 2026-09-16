@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import sys
+from urllib.parse import urlsplit
 
 import store
 import boss_page
@@ -13,9 +14,20 @@ from browsing_safety import Safety
 import webbridge_client
 from policy_rules import browser_route
 
-OPERATIONS = ('status', 'resume-context', 'inspect', 'start-query', 'control', 'capture-list', 'screen',
+OPERATIONS = ('status', 'resume-context', 'recover-page', 'inspect', 'start-query', 'control', 'capture-list', 'screen',
               'open-detail', 'review-detail', 'submit', 'reconcile', 'scroll',
               'dismiss-receipt', 'ack-quota-notice', 'clear-access-block', 'defer-detail', 'select-account-context', 'finish-list-read')
+
+
+class BrowserError(store.StoreError):
+    def __init__(self, result: dict, *, read_only: bool):
+        self.detail = (result.get('result') or {}).get('error') or {'message': result.get('error', 'response-unavailable')}
+        if not isinstance(self.detail, dict):
+            self.detail = {'message': str(self.detail)}
+        message = str(self.detail.get('message', ''))
+        closed = 'tab was closed' in message or 'navigate first' in message
+        self.next_action = 'recover-page' if read_only and closed else ('inspect-connection' if read_only else 'reconcile-do-not-resend')
+        super().__init__('browser-read-failed' if read_only else 'browser-outcome-unknown:inspect-do-not-repeat')
 
 
 class Engine:
@@ -25,10 +37,10 @@ class Engine:
         self.safety = Safety(root, token, platform, session)
         self.transport = transport or (lambda action, args: webbridge_client.command_file(session, action, args))
 
-    def _call(self, script: str) -> dict:
+    def _call(self, script: str, *, read_only: bool = False) -> dict:
         result = self.transport('evaluate', {'code': script})
         if result.get('outcome') != 'returned':
-            raise store.StoreError('browser-outcome-unknown:inspect-do-not-repeat')
+            raise BrowserError(result, read_only=read_only)
         raw = result.get('result', {}).get('data', {})
         value = raw.get('value')
         if isinstance(value, str):
@@ -39,7 +51,58 @@ class Engine:
 
     def _inspect(self) -> dict:
         # Fixed DOM-only script; does not scroll, click, navigate, fetch or preload.
-        return self.safety.observe(self._call(boss_page.observation_script()))
+        self.safety._state()
+        return self.safety.observe(self._call(boss_page.observation_script(), read_only=True))
+
+    def _recover_page(self, data: dict) -> dict:
+        """Restore only this Kimi session's BOSS job page; never send or clear history."""
+        if data:
+            raise store.StoreError('recover-page-takes-no-url-or-other-arguments')
+        self.safety.preflight()
+        flow = self.safety.status()['flow']
+        if flow.get('session') and flow['session'] != self.safety.session:
+            raise store.StoreError('recovery-must-use-saved-kimi-session')
+        if (flow.get('pending') or {}).get('operation') == 'submit':
+            raise store.StoreError('reconcile-pending-submit-before-page-recovery')
+        listed = self.transport('list_tabs', {})
+        if listed.get('outcome') != 'returned':
+            raise BrowserError(listed, read_only=True)
+        body = (listed.get('result') or {}).get('data') or {}
+        tabs = body.get('tabs')
+        if body.get('success') is not True or not isinstance(tabs, list):
+            raise store.StoreError('invalid-session-tab-inventory')
+        urls = []
+        for tab in tabs:
+            url = tab.get('url', '')
+            parts = urlsplit(url)
+            if parts.scheme == 'https' and parts.netloc == 'www.zhipin.com' and parts.path.rstrip('/') == '/web/geek/jobs':
+                if url not in urls:
+                    urls.append(url)
+        if len(urls) > 1:
+            raise store.StoreError('multiple-job-pages:identify-task-page-before-recovery')
+        previous = flow.get('pageRecovery') or {}
+        if not urls and previous.get('operation') == 'navigate' and previous.get('status') in ('started', 'unknown'):
+            raise store.StoreError('page-recovery-outcome-unknown:inspect-session-before-retrying')
+        operation = 'find_tab' if urls else 'navigate'
+        args = {'url': urls[0]} if urls else {'url': 'https://www.zhipin.com/web/geek/jobs', 'newTab': True, 'group_title': '求职投递'}
+        with store.transaction(self.safety.root):
+            state, flow = self.safety._state(active=True)
+            flow['pageRecovery'] = {'status': 'started', 'operation': operation,
+                                    'session': self.safety.session, 'at': store.stamp()}
+            self.safety._save(state)
+        result = self.transport(operation, args)
+        returned = result.get('outcome') == 'returned' and (result.get('result', {}).get('data') or {}).get('success') is True
+        with store.transaction(self.safety.root):
+            state, flow = self.safety._state()
+            flow['pageRecovery'].update(status='returned' if returned else 'unknown')
+            self.safety._save(state)
+        if not returned:
+            error = BrowserError(result, read_only=False)
+            error.next_action = 'inspect-session-before-retrying-page-recovery'
+            raise error
+        return {'operation': 'recover-page', 'browser': 'kimi-webbridge', 'session': self.safety.session,
+                'step': operation, 'url': args['url'], 'nextAction': 'inspect-and-revalidate-account-and-filters',
+                'submissionVerified': False}
 
     def execute(self, operation: str, data: dict | None = None) -> dict:
         data = data or {}
@@ -53,10 +116,17 @@ class Engine:
             status = self.safety.status()
             context = status.get('accountContext') or {}
             flow = status['flow']
-            return {**status, 'browser': route, 'policyFingerprint': store.fingerprint(policy),
+            # Do not bury the required route behind thousands of historical candidates.
+            checkpoint = {key: flow.get(key) for key in ('query', 'batch', 'phase', 'activeKey',
+                          'pending', 'pageRecovery', 'lastObservation')}
+            return {'browser': route, 'policyFingerprint': store.fingerprint(policy),
                     'session': context.get('session') or flow.get('session'),
+                    'platform': status['platform'], 'accessBlock': status['accessBlock'],
+                    'accountContext': context, 'flow': checkpoint,
                     'requiredReads': ['SKILL.md', 'references/drivers.md', 'kimi-webbridge/SKILL.md'],
                     'networkCalls': 0}
+        if operation == 'recover-page':
+            return self._recover_page(data)
         if operation == 'inspect':
             return self._inspect()
         if operation in ('start-query', 'screen', 'review-detail', 'clear-access-block', 'defer-detail', 'select-account-context', 'finish-list-read'):
@@ -244,7 +314,8 @@ def main() -> int:
         print(json.dumps(result, ensure_ascii=False))
         return 0
     except (ValueError, OSError, KeyError) as error:
-        print(json.dumps({'error': str(error), 'noAutomaticRetry': True}, ensure_ascii=False))
+        details = {'cause': error.detail, 'nextAction': error.next_action} if isinstance(error, BrowserError) else {}
+        print(json.dumps({'error': str(error), **details, 'noAutomaticRetry': True}, ensure_ascii=False))
         return 1
 
 

@@ -12,6 +12,14 @@ Kimi session 是 Kimi daemon 的会话标识，不是 `cua.getTab` 的标签 ID�
 
 通道说明允许 Python HTTP 传输时，入口内部使用 UTF-8 字节传输，不经 shell 拼接中文、不自动重试。不用裸 curl、循环 evaluate、CDP 或招聘平台私有接口绕过单步入口；登录等未适配动作保留材料和缺口。验证码等秘密输入只走当前工具允许的内存传递方式，不落入请求文件。不读取浏览器凭据或复制 cookie。
 
+## 标签已关闭或当前页面丢失
+
+`inspect` 的 browser-read-failed 会保留 cause.code/message。若 cause 表明 tab was closed / navigate first，先取得运行锁，沿用 resume-context 的原 Kimi session，执行 `browser_actions.py --data-dir DATA_DIR --token TOKEN --session SESSION --operation recover-page`；不要把纯观察失败当作一次未知外发。
+
+该入口先检查账号访问限制，只查询本任务 Kimi 标签。已存在唯一 BOSS 职位页时重新选中；不存在才在同一 session 打开一个 BOSS 职位页。返回后只被动 inspect，待加载完成核对账号，再按当前 policy 重新核对或设置固定筛选；旧查询、候选、成功和 unknown 不清空。初次创建恢复标签组时告诉用户页面集中在“求职投递”，只在用户要求时关闭。
+
+不传任意 URL、不借用其它任务标签、不重启 daemon。未决 submit 先 reconcile 保留真实状态；导航结果未知时先查同一 session，不盲目重复打开。多个职位页无法唯一归属则保留现场说明。恢复不代表登录、筛选或投递已成功；出现访问限制仍停止。普通加载占位不是安全验证，明确安全检查/验证码仍按限制处理。
+
 ## 登录恢复
 
 以下网页恢复步骤仅在当前版本对应的 Kimi 单步入口已适配时执行；未适配时保存所需材料和具体缺口，继续独立本地工作，不裸调用浏览器。已有登录授权继续保留，缺口不改写为缺少批准。

@@ -41,6 +41,8 @@ python scripts/browser_actions.py --data-dir ./demo-data --operation resume-cont
 python scripts/browser_actions.py --data-dir ./demo-data --platform boss --operation status
 ```
 
+标签关闭时按 [drivers.md](drivers.md) 执行 `recover-page`，这是受检查的同一 Kimi 通道恢复，不属于备用浏览器。先获取锁：`python scripts/store.py --data-dir DATA_DIR lock acquire`；CLI 子命令是 `lock`，不是 Python 函数名 `run_lock`。
+
 取得运行锁后，使用已归属的实际 session。下面仅观察当前已经加载的 DOM，不导航、不滚动、不导入候选，也不证明搜索筛选已经设置：
 ```sh
 python scripts/browser_actions.py --data-dir ./demo-data --token TOKEN --platform boss --session SESSION --operation inspect

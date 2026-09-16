@@ -47,7 +47,7 @@ def classify(page: dict) -> str:
     if '/passport/zp/403' in url:
         return 'access-restricted'
     normal = bool(page.get('cards') or page.get('detail') or page.get('controls'))
-    if ('请稍候' in body or '安全检查' in body) and not normal:
+    if '安全检查' in body and not normal:
         return 'security-check'
     if ('登录' in body and not page.get('accountLabel') and not normal) or '登录查看完整内容' in body:
         return 'login-required'
