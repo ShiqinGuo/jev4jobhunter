@@ -12,6 +12,22 @@ class PolicyError(ValueError):
     pass
 
 
+def browser_route(policy: dict) -> dict:
+    """This plugin's browser adapter is Kimi WebBridge, never native CUA."""
+    browser = policy.get('browser', {})
+    if not isinstance(browser, dict):
+        raise PolicyError('invalid-browser-policy')
+    for field in ('required', 'preferred'):
+        if browser.get(field) not in (None, 'kimi-webbridge'):
+            raise PolicyError('browser-provider-unsupported:required-kimi-webbridge')
+    if browser.get('allowFallback', False) is not False:
+        raise PolicyError('browser-fallback-disabled:required-kimi-webbridge')
+    return {'provider': 'kimi-webbridge', 'allowFallback': False,
+            'transport': 'webbridge_client.command_file -> local Kimi daemon',
+            'forbiddenTools': ['mcp__cua_repl', 'cua.*', 'native browser', 'computer-use'],
+            'onUnavailable': 'preserve-checkpoint-and-report-blocked-no-provider-switch'}
+
+
 def fingerprint(value: dict) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False,
                                     separators=(',', ':'), allow_nan=False).encode('utf-8')).hexdigest()
@@ -47,6 +63,26 @@ def validate_rules(policy: dict) -> None:
         raise PolicyError('invalid-targets-or-search')
     if type(search.get('excludeHeadhunterPosted', False)) is not bool:
         raise PolicyError('invalid-headhunter-rule')
+    if 'queries' in search:
+        if not strings(search['queries'], 'search-queries'):
+            raise PolicyError('search-queries-required')
+    for field in ('experienceFilter', 'salaryFilter'):
+        selection = search.get(field, {})
+        if isinstance(selection, dict) and 'selectedLabels' in selection:
+            selected = strings(selection['selectedLabels'], field + '-selected-labels')
+            allowed = strings(selection.get('allowedLabels', []), field + '-allowed-labels')
+            if (selection.get('enabled') and not selected) or not set(selected).issubset(allowed):
+                raise PolicyError(field + '-selection-outside-policy')
+    salary_filter = search.get('salaryFilter')
+    if salary_filter is not None:
+        if not isinstance(salary_filter, dict) or type(salary_filter.get('enabled', False)) is not bool:
+            raise PolicyError('invalid-salary-filter')
+        allowed_salary = salary_filter.get('allowedLabels', [])
+        strings(allowed_salary, 'salary-filter-labels')
+        selected_salary = salary_filter.get('selectedLabels', allowed_salary if salary_filter.get('enabled') else [])
+        strings(selected_salary, 'salary-filter-selected-labels')
+        if not set(selected_salary).issubset(allowed_salary):
+            raise PolicyError('salary-filter-selection-outside-policy')
     for field, rows in [('excludedCompanies', targets.get('excludedCompanies', [])),
                         ('excludedOpportunityGroups', search.get('excludedOpportunityGroups', []))]:
         if not isinstance(rows, list):

@@ -11,10 +11,11 @@ import store
 import boss_page
 from browsing_safety import Safety
 import webbridge_client
+from policy_rules import browser_route
 
-OPERATIONS = ('status', 'inspect', 'start-query', 'control', 'capture-list', 'screen',
+OPERATIONS = ('status', 'resume-context', 'inspect', 'start-query', 'control', 'capture-list', 'screen',
               'open-detail', 'review-detail', 'submit', 'reconcile', 'scroll',
-              'dismiss-receipt', 'clear-access-block', 'defer-detail', 'select-account-context')
+              'dismiss-receipt', 'ack-quota-notice', 'clear-access-block', 'defer-detail', 'select-account-context', 'finish-list-read')
 
 
 class Engine:
@@ -46,9 +47,19 @@ class Engine:
             raise store.StoreError('known-operation-and-object-required')
         if operation == 'status':
             return self.safety.status()
+        policy = store.load_policy(self.safety.root)
+        route = browser_route(policy)
+        if operation == 'resume-context':
+            status = self.safety.status()
+            context = status.get('accountContext') or {}
+            flow = status['flow']
+            return {**status, 'browser': route, 'policyFingerprint': store.fingerprint(policy),
+                    'session': context.get('session') or flow.get('session'),
+                    'requiredReads': ['SKILL.md', 'references/drivers.md', 'kimi-webbridge/SKILL.md'],
+                    'networkCalls': 0}
         if operation == 'inspect':
             return self._inspect()
-        if operation in ('start-query', 'screen', 'review-detail', 'clear-access-block', 'defer-detail', 'select-account-context'):
+        if operation in ('start-query', 'screen', 'review-detail', 'clear-access-block', 'defer-detail', 'select-account-context', 'finish-list-read'):
             return getattr(self.safety, operation.replace('-', '_'))(data)
         if operation == 'reconcile':
             return self._reconcile(data)
@@ -68,7 +79,7 @@ class Engine:
             return self.safety.capture_list()
         if operation == 'submit':
             return self._submit(data)
-        allowed = {'control': {'id', 'value'}, 'open-detail': {'key'}, 'scroll': set(), 'dismiss-receipt': set()}
+        allowed = {'control': {'id', 'value', 'interaction'}, 'open-detail': {'key'}, 'scroll': set(), 'dismiss-receipt': set(), 'ack-quota-notice': {'actionId'}}
         if set(data) - allowed[operation]:
             raise store.StoreError('unsupported-step-arguments')
         script = boss_page.action_script(operation, data)
@@ -77,6 +88,13 @@ class Engine:
         if result.get('status') == 'unsupported':
             self.safety.cancel_unsupported_step()
             return result
+        if result.get('status') == 'hover-target':
+            self.safety.preflight()
+            moved = self.transport('cdp', {'method': 'Input.dispatchMouseEvent', 'params': {
+                'type': 'mouseMoved', 'x': result['x'], 'y': result['y']}})
+            if moved.get('outcome') != 'returned' or moved.get('result', {}).get('ok') is False:
+                raise store.StoreError('browser-outcome-unknown:inspect-do-not-repeat')
+            result = {**result, 'status': 'hovered'}
         observation = self._inspect()
         return {'step': result, 'observation': observation}
 
@@ -219,7 +237,7 @@ def main() -> int:
     parser.add_argument('--file', type=Path)
     args = parser.parse_args()
     try:
-        if args.operation != 'status' and (not args.token or not args.session):
+        if args.operation not in ('status', 'resume-context') and (not args.token or not args.session):
             raise store.StoreError('run-token-and-browser-session-required')
         engine = Engine(args.data_dir.expanduser(), args.token, args.platform, args.session)
         result = engine.execute(args.operation, store.read_json(args.file) if args.file else {})

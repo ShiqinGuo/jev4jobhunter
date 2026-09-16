@@ -152,6 +152,18 @@ class OfflineDOMTests(unittest.TestCase):
         self.assertEqual(value['detail']['key'], 'boss:job_one')
         self.assertEqual(output['calls'], [])
 
+    def test_observation_reads_selected_salary_filter(self):
+        html = fixture('''<div class="condition-filter-select">
+          <div id="salary-menu" class="current-select">薪资待遇(1)</div>
+          <ul role="listbox" aria-label="薪资待遇">
+            <li id="salary-ten-twenty" ka="sel-job-rec-salary-4" class="active">10-20K</li>
+            <li ka="sel-job-rec-salary-5">20-50K</li>
+          </ul></div>''')
+        output = self.run_dom([boss_page.observation_script()], html=html)['values'][0]
+        self.assertEqual(output['filters']['salary'], ['10-20K'])
+        self.assertTrue(any(c.get('filter') == 'salary' and c['kind'] == 'filter-menu'
+                            for c in output['controls']))
+
     def test_home_header_label_text_is_visible_unique_and_ignores_hidden_profile(self):
         header = '''<li class="nav-figure">
           <a href="https://www.zhipin.com/web/geek/recommend" ka="header-username">
@@ -268,6 +280,20 @@ class OfflineDOMTests(unittest.TestCase):
             before="document.querySelector('#degree-options').hidden=true")
         self.assertEqual(hidden['values'][0]['filters']['degree'], [])
 
+    def test_counted_filter_menu_hover_target_is_bounded_and_does_not_click(self):
+        html = fixture('''<div class="condition-filter-select" style="position:fixed;top:10px;left:10px">
+            <div class="current-select" style="width:100px;height:30px">学历要求(1)</div></div>''')
+        observed = self.run_dom([boss_page.observation_script()], html=html)['values'][0]
+        menu = next(c for c in observed['controls'] if c.get('filter') == 'degree')
+        result = self.run_dom([boss_page.action_script('control', {'id': menu['id'], 'interaction': 'hover'})], html=html)
+        self.assertEqual(result['calls'], [])
+        self.assertEqual(result['values'][0]['status'], 'hover-target')
+        self.assertEqual((result['values'][0]['x'], result['values'][0]['y']), (60, 25))
+        keyword = next(c for c in observed['controls'] if c['kind'] == 'keyword')
+        rejected = self.run_dom([boss_page.action_script('control', {'id': keyword['id'], 'interaction': 'hover'})], html=html)
+        self.assertEqual(rejected['values'][0]['status'], 'unsupported')
+        self.assertEqual(rejected['calls'], [])
+
     def test_degree_control_duplicates_and_conflicting_readback_are_rejected(self):
         extra = '''<div class="condition-filter-select"><div id="degree-menu" class="current-select">大专</div>
           <li id="college" ka="sel-job-rec-degree-202" class="active">大专</li></div>'''
@@ -333,10 +359,20 @@ class OfflineDOMTests(unittest.TestCase):
     def test_scroll_targets_list_once_never_detail_and_does_not_claim_end(self):
         result = self.run_dom([boss_page.action_script('scroll'), boss_page.observation_script()])
         self.assertEqual(result['calls'], [{'kind': 'scroll', 'id': 'jobs', 'top': 110}])
+        self.assertGreater(result['values'][1]['scrollRemaining'], 0)
         self.assertFalse(result['values'][1]['endOfList'])
         loading = self.run_dom([boss_page.action_script('scroll')], before="document.querySelector('#jobs').setAttribute('aria-busy','true')")
         self.assertEqual(loading['values'][0]['status'], 'unsupported')
         self.assertEqual(loading['calls'], [])
+
+    def test_feedback_space_after_last_card_requires_more_scroll(self):
+        before = """const list = document.querySelector('#jobs');
+            const feedback = document.createElement('div'); feedback.style.height = '300px';
+            feedback.textContent = '搜索反馈'; list.append(feedback); list.scrollTop = 300;"""
+        result = self.run_dom([boss_page.observation_script()], before=before)['values'][0]
+        self.assertFalse(result['listTailBelowViewport'])
+        self.assertGreater(result['scrollRemaining'], 0)
+        self.assertFalse(result['endOfList'])
 
     def test_explicit_terminal_and_receipt_dismissal(self):
         receipt = '<div role="dialog">已向BOSS发送消息<a id="stay" class="default-btn cancel-btn">留在此页</a></div>'
@@ -350,6 +386,31 @@ class OfflineDOMTests(unittest.TestCase):
         unrelated = '<p>已向BOSS发送消息</p><div role="dialog"><a id="stay" class="default-btn cancel-btn">留在此页</a></div>'
         wrong_dialog = self.run_dom([boss_page.action_script('dismiss-receipt')], html=fixture(unrelated))
         self.assertEqual(wrong_dialog['calls'], [])
+
+    def test_quota_notice_ack_is_exact_positive_unique_dialog_only(self):
+        script = boss_page.action_script('ack-quota-notice', {'actionId': 'fixture'})
+        notice = '<div role="dialog">您今天已与120位BOSS沟通，还剩30次沟通机会哦<a id="okay">好</a></div>'
+        result = self.run_dom([script], html=fixture(notice))
+        self.assertEqual(result['calls'], [{'kind': 'click', 'id': 'okay'}])
+        for html in [notice.replace('还剩30', '还剩0'), notice + notice,
+                     '<p>您今天已与120位BOSS沟通，还剩30次沟通机会哦</p><div role="dialog"><a>好</a></div>']:
+            with self.subTest(html=html):
+                result = self.run_dom([script], html=fixture(html))
+                self.assertEqual(result['calls'], [])
+                self.assertEqual(result['values'][0]['status'], 'unsupported')
+
+    def test_home_search_allowed_but_details_and_other_paths_rejected(self):
+        scripts = [boss_page.action_script('control', {'id':'keyword:::搜索职位、公司','value':'Python'})]
+        # Use the actually observed encoded semantic ID.
+        observed = self.run_dom([boss_page.observation_script()], url='https://www.zhipin.com/beijing/')
+        keyword = next(c['id'] for c in observed['values'][0]['controls'] if c['kind']=='keyword')
+        action = boss_page.action_script('control', {'id':keyword,'value':'Python'})
+        home = self.run_dom([action, boss_page.action_script('open-detail', {'key':'boss:job_one'})], url='https://www.zhipin.com/beijing/')
+        self.assertEqual(home['values'][0]['status'], 'filled')
+        self.assertEqual(home['values'][1]['status'], 'unsupported')
+        other = self.run_dom([action], url='https://www.zhipin.com/web/geek/chat')
+        self.assertEqual(other['values'][0]['status'], 'unsupported')
+        self.assertEqual(other['calls'], [])
 
     def test_unknown_layout_origin_and_hover_only_menu_fail_closed(self):
         value = self.run_dom([boss_page.observation_script(), boss_page.action_script('scroll')],

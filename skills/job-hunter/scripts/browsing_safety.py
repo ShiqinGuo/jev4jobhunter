@@ -203,6 +203,28 @@ class Safety:
             flow['events'].append({'at': store.stamp(), 'operation': pending['operation'], 'status': 'unsupported-no-action'})
             self._save(state)
 
+    def finish_list_read(self, data: dict) -> dict:
+        """Close an observed scroll with no growth, without claiming search exhaustion."""
+        evidence = store.required_string(data, 'evidence')
+        with store.transaction(self.root):
+            state, flow = self._state(active=True)
+            pending = flow.get('pending') or {}
+            page = self._last_page(flow)
+            self._verify(flow, page)
+            if (flow['phase'] != 'await-list' or pending.get('operation') != 'scroll'
+                    or flow['lastObservation']['path'] == pending.get('beforeObservation')
+                    or not self.batch_done({**flow, 'pending': None})
+                    or page.get('loading') or page.get('listTailBelowViewport') is not False
+                    or page.get('scrollRemaining', 0) > 1
+                    or any(c.get('key') not in flow['seen'] for c in page.get('cards', []))):
+                raise store.StoreError('completed-list-no-growth-observation-required')
+            flow['events'].append({'at': store.stamp(), 'operation': 'finish-list-read',
+                'status': 'observed-no-growth', 'evidence': evidence,
+                'observation': flow['lastObservation']['path']})
+            flow.update(pending=None, phase='batch')
+            self._save(state)
+            return {'completed': True, 'exhaustionVerified': False, 'networkCalls': 0}
+
     def defer_detail(self, data: dict) -> dict:
         """Set aside an interrupted read after new passive evidence; never retry it."""
         evidence = store.required_string(data, 'evidence')
@@ -276,7 +298,7 @@ class Safety:
                             'policyFingerprint': flow.get('policyFingerprint')}
                         flow['pending'] = None
                         flow['phase'] = 'detail'
-                    elif pending.get('operation') in ('control', 'dismiss-receipt'):
+                    elif pending.get('operation') in ('control', 'dismiss-receipt', 'ack-quota-notice'):
                         # New rendered evidence is required before another individual control action.
                         flow['pending'] = None
             self._save(state)
@@ -307,13 +329,18 @@ class Safety:
             if any(actual.get(k) != expected[k] for k in ('city', 'keyword')) or set(
                     actual.get('experience', [])) != set(expected['experience']):
                 raise store.StoreError('visible-selected-filters-do-not-match-query')
+            if expected.get('salary') and set(actual.get('salary', [])) != set(expected['salary']):
+                raise store.StoreError('visible-selected-filters-do-not-match-query')
 
     def start_query(self, data: dict) -> dict:
         query = {k: data.get(k) for k in ('city', 'keyword', 'experience')}
+        query['salary'] = data.get('salary', [])
         if not all(isinstance(query[k], str) and query[k].strip() for k in ('city', 'keyword')):
             raise store.StoreError('city-and-keyword-required')
         if not isinstance(query['experience'], list) or not all(isinstance(x, str) and x for x in query['experience']):
             raise store.StoreError('experience-label-list-required')
+        if not isinstance(query['salary'], list) or not all(isinstance(x, str) and x for x in query['salary']):
+            raise store.StoreError('salary-label-list-required')
         account = store.required_string(data, 'accountLabel')
         with store.transaction(self.root):
             state, flow = self._state(active=True)
@@ -324,10 +351,19 @@ class Safety:
                 raise store.StoreError('finish-current-batch-before-query-change')
             policy = store.load_policy(self.root)
             search = policy.get('search', {})
+            if 'queries' in search and query['keyword'] not in search['queries']:
+                raise store.StoreError('keyword-outside-policy:use-search-queries')
             experience = search.get('experienceFilter', {})
             if experience.get('enabled') and (not query['experience'] or not set(query['experience']).issubset(
                     experience.get('allowedLabels', []))):
                 raise store.StoreError('experience-outside-policy')
+            salary = search.get('salaryFilter', {})
+            if salary.get('enabled') and (not query['salary'] or not set(query['salary']).issubset(
+                    salary.get('allowedLabels', []))):
+                raise store.StoreError('salary-outside-policy')
+            for key, rule in (('experience', experience), ('salary', salary)):
+                if rule.get('enabled') and 'selectedLabels' in rule and set(query[key]) != set(rule['selectedLabels']):
+                    raise store.StoreError(key + '-selection-must-match-policy')
             if search.get('singleCityPerDay'):
                 plan = state['scheduler'].get('cityDailyPlan', {})
                 day = store.local_now(policy).date().isoformat()
@@ -347,7 +383,8 @@ class Safety:
                 flow.setdefault('archives', []).append(relative)
                 flow.update(candidates={}, seen=[])
             flow.update(query=query, accountLabel=account, session=self.session,
-                        profileFingerprint=profile_hash, policyFingerprint=policy_hash, batch=None, phase='configuring')
+                        profileFingerprint=profile_hash, policyFingerprint=policy_hash, batch=None,
+                        endOfList=False, phase='configuring')
             flow['events'].append({'at': store.stamp(), 'operation': 'start-query', 'query': query})
             self._save(state)
             return {'query': query, 'phase': flow['phase']}
@@ -371,13 +408,18 @@ class Safety:
                 if (flow['phase'] == 'await-list' and pending.get('operation') == 'scroll'
                         and flow['lastObservation']['path'] != pending.get('beforeObservation')
                         and self.batch_done({**flow, 'pending': None})
-                        and page.get('listTailBelowViewport') is True and not page.get('loading')):
+                        and (page.get('listTailBelowViewport') is True or page.get('scrollRemaining', 0) > 1)
+                        and not page.get('loading')):
                     # A viewport-sized scroll may only traverse the already-reviewed
                     # batch. Permit one further visible scroll, never prefetch a new batch.
                     flow.update(phase='batch', pending=None)
                     self._save(state)
-                    return {'waiting': True, 'reason': 'processed-list-tail-not-yet-reached', 'mayScroll': True}
-                return {'waiting': True, 'reason': 'no-new-ids-yet', 'mayScroll': False}
+                    reason = ('processed-list-tail-not-yet-reached' if page.get('listTailBelowViewport')
+                              else 'loaded-tail-visible-scroll-space-remains')
+                    return {'waiting': True, 'reason': reason, 'mayScroll': True,
+                            'exhaustionVerified': False, 'nextAction': 'scroll-current-query'}
+                return {'waiting': True, 'reason': 'no-new-ids-yet', 'mayScroll': False,
+                        'exhaustionVerified': False, 'nextAction': 'observe-current-query'}
             keys = []
             for card in cards:
                 key = card['key']
@@ -462,6 +504,9 @@ class Safety:
                     if control.get('filter') == 'experience' and control['label'] not in flow['query']['experience']:
                         if control['label'] not in page.get('filters', {}).get('experience', []):
                             raise store.StoreError('experience-control-must-match-query')
+                    if control.get('filter') == 'salary' and control['label'] not in flow['query'].get('salary', []):
+                        if control['label'] not in page.get('filters', {}).get('salary', []):
+                            raise store.StoreError('salary-control-must-match-query')
             elif operation == 'open-detail':
                 key = args.get('key')
                 if flow['activeKey'] or key not in (flow.get('batch') or {}).get('keys', []):
@@ -493,9 +538,36 @@ class Safety:
                     raise store.StoreError('pending-matching-outbox-required')
                 if '已向BOSS发送消息' in page.get('body', ''):
                     raise store.StoreError('dismiss-previous-receipt-before-submit')
+            elif operation == 'ack-quota-notice':
+                action = state['actions'].get(args.get('actionId'), {})
+                key = (page.get('detail') or {}).get('key')
+                ack_events = [e for e in flow['events'] if e.get('operation') == 'ack-quota-notice']
+                proven_no_click = (len(ack_events) >= 2
+                    and ack_events[-1].get('status') == 'unsupported-no-action'
+                    and ack_events[-2].get('args', {}).get('actionId') == args.get('actionId'))
+                if (action.get('status') != 'unknown' or action.get('kind') != 'greet'
+                        or action.get('platform') != self.platform or action.get('targetKey') != key
+                        or action.get('accountLabel') != flow.get('accountLabel')
+                        or action.get('browsingContext', {}).get('batchId') != (flow.get('batch') or {}).get('id')
+                        or (action.get('quotaNoticeAckAttempted') and not proven_no_click) or flow['activeKey']):
+                    raise store.StoreError('unresolved-matching-once-only-quota-notice-required')
+                if not re.search(r'您今天已与\s*\d+\s*位BOSS沟通[，,]\s*还剩\s*[1-9]\d*\s*次沟通机会哦', page.get('body', '')):
+                    raise store.StoreError('positive-quota-notice-required')
+                action['quotaNoticeAckAttempted'] = store.stamp()
             elif operation == 'dismiss-receipt':
                 if flow['activeKey']:
-                    raise store.StoreError('reconcile-before-dismiss')
+                    # A prior receipt can remain rendered when the user opens
+                    # the next detail before closing it.  Permit only closing
+                    # that visible receipt while the new detail is reviewed
+                    # for application, and never while its own outbox is
+                    # pending or unresolved.
+                    candidate = flow['candidates'].get(flow['activeKey'], {})
+                    has_held_action = any(
+                        action.get('targetKey') == flow['activeKey']
+                        and action.get('status') in store.HELD
+                        for action in state.get('actions', {}).values())
+                    if candidate.get('decision') != 'apply' or has_held_action:
+                        raise store.StoreError('reconcile-before-dismiss')
             else:
                 raise store.StoreError('unsupported-browser-step')
             flow['pending'] = {'id': uuid.uuid4().hex, 'operation': operation, 'args': args,

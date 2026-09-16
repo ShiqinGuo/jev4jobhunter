@@ -81,6 +81,134 @@ class BrowsingFixture(unittest.TestCase):
 
 
 class BrowsingOrderTests(BrowsingFixture):
+    def test_resume_context_recovers_route_and_checkpoint_without_browser_or_lock(self):
+        self.batch()
+        store.run_lock(self.root, 'release', self.token)
+        calls = []
+        engine = Engine(self.root, '', 'boss', '', lambda *args: calls.append(args))
+        result = engine.execute('resume-context')
+        self.assertEqual(result['browser']['provider'], 'kimi-webbridge')
+        self.assertFalse(result['browser']['allowFallback'])
+        self.assertEqual(result['flow']['query']['keyword'], 'Python')
+        self.assertEqual(result['session'], 'fixture-session-1')
+        self.assertEqual(result['policyFingerprint'], store.fingerprint(store.load_policy(self.root)))
+        self.assertEqual(calls, [])
+
+    def test_conflicting_browser_policy_rejected_before_any_transport(self):
+        calls = []
+        engine = Engine(self.root, self.token, 'boss', 'fixture-session-1', lambda *args: calls.append(args))
+        original = store.load_policy(self.root)
+        for browser in [{'required': 'native'}, {'preferred': 'cua'}, {'allowFallback': True}]:
+            store.write_json(self.root / 'policy.json', {**original, 'browser': browser})
+            with self.subTest(browser=browser), self.assertRaisesRegex(store.StoreError, 'browser-'):
+                engine.execute('inspect')
+        self.assertEqual(calls, [])
+
+    def test_legacy_policy_without_browser_still_uses_kimi(self):
+        policy = store.load_policy(self.root)
+        policy.pop('browser', None)
+        store.write_json(self.root / 'policy.json', policy)
+        engine = Engine(self.root, '', 'boss', '', lambda *args: self.fail('unexpected browser call'))
+        self.assertEqual(engine.execute('resume-context')['browser']['provider'], 'kimi-webbridge')
+
+    def test_keyword_allowlist_rejects_agent_expansion_before_browser_call(self):
+        policy = store.load_policy(self.root)
+        policy['search']['queries'] = ['Python']
+        store.write_json(self.root / 'policy.json', policy)
+        calls = []
+        engine = Engine(self.root, self.token, 'boss', 'fixture-session-1',
+                        transport=lambda *args: calls.append(args))
+        for word in ['FastAPI', '服务端开发', 'Python 后端']:
+            with self.subTest(word=word), self.assertRaisesRegex(store.StoreError, 'keyword-outside-policy'):
+                engine.execute('start-query', {**self.query, 'keyword': word})
+        self.assertEqual(calls, [])
+        self.assertEqual(engine.execute('start-query', self.query)['query']['keyword'], 'Python')
+
+    def test_fixed_filter_selection_cannot_be_silently_narrowed(self):
+        policy = store.load_policy(self.root)
+        policy['search']['experienceFilter']['selectedLabels'] = ['应届生', '1年以内', '1-3年']
+        policy['search']['salaryFilter'] = {'enabled': True, 'allowedLabels': ['10-20K', '20-50K'],
+                                           'selectedLabels': ['10-20K']}
+        store.write_json(self.root / 'policy.json', policy)
+        with self.assertRaisesRegex(store.StoreError, 'experience-selection-must-match-policy'):
+            self.guard.start_query({**self.query, 'salary': ['10-20K']})
+        query = {**self.query, 'experience': ['应届生', '1年以内', '1-3年'], 'salary': ['20-50K']}
+        with self.assertRaisesRegex(store.StoreError, 'salary-selection-must-match-policy'):
+            self.guard.start_query(query)
+        query['salary'] = ['10-20K']
+        self.guard.start_query(query)
+
+    def test_loaded_card_tail_does_not_stop_scroll_before_loading_threshold(self):
+        self.batch()
+        self.screen('boss:job-a', 'skipped')
+        self.screen('boss:job-b', 'skipped')
+        self.guard.reserve('scroll', {})
+        self.guard.observe(self.page(listTailBelowViewport=False, scrollRemaining=200,
+                                     loading=False, endOfList=False))
+        with self.assertRaisesRegex(store.StoreError, 'completed-list-no-growth-observation-required'):
+            self.guard.finish_list_read({'evidence': 'Last loaded card visible but feedback area remains'})
+        result = self.guard.capture_list()
+        self.assertEqual(result['nextAction'], 'scroll-current-query')
+        self.assertFalse(result['exhaustionVerified'])
+        self.guard.reserve('scroll', {})
+        self.guard.observe(self.page(keys=('boss:job-a', 'boss:job-b', 'boss:job-c'),
+                                     listTailBelowViewport=True, scrollRemaining=300, loading=False))
+        result = self.guard.capture_list()
+        self.assertEqual(list(result['candidates']), ['boss:job-c'])
+        self.assertEqual(result['batch']['query']['keyword'], 'Python')
+        with self.assertRaisesRegex(store.StoreError, 'finish-current-batch-before-one-scroll'):
+            self.guard.reserve('scroll', {})
+
+    def test_query_reset_does_not_inherit_previous_end_marker(self):
+        self.batch()
+        self.screen('boss:job-a', 'skipped')
+        self.screen('boss:job-b', 'skipped')
+        self.guard.reserve('scroll', {})
+        self.guard.observe(self.page(endOfList=True))
+        self.guard.capture_list()
+        self.assertTrue(self.guard.status()['flow']['endOfList'])
+        self.guard.start_query(self.query)
+        self.assertFalse(self.guard.status()['flow']['endOfList'])
+
+    def test_quota_notice_requires_matching_unknown_and_cannot_repeat(self):
+        self.batch()
+        request = self.request()
+        request['browsingContext'] = {'batchId': self.guard.status()['flow']['batch']['id']}
+        action = store.begin(self.root, self.token, request)
+        store.resolve(self.root, self.token, action['id'], 'unknown', 'Fixture blocked by quota reminder')
+        page = self.page(body='您今天已与120位BOSS沟通，还剩30次沟通机会哦',
+                         detail={'key':'boss:job-b','text':'Fixture JD'})
+        self.guard.observe(page)
+        with self.assertRaises(store.StoreError):
+            self.guard.reserve('ack-quota-notice', {'actionId':action['id']})
+        page['detail']['key'] = 'boss:job-a'
+        self.guard.observe(page)
+        self.guard.reserve('ack-quota-notice', {'actionId':action['id']})
+        self.guard.observe(page)
+        with self.assertRaises(store.StoreError):
+            self.guard.reserve('ack-quota-notice', {'actionId':action['id']})
+        self.assertEqual(store.load_state(self.root)['actions'][action['id']]['status'], 'unknown')
+
+    def test_stale_receipt_can_be_closed_before_next_reviewed_submit(self):
+        self.batch()
+        self.open_detail('boss:job-a')
+        self.guard.review_detail({'key': 'boss:job-a', 'decision': 'apply',
+                                  'eligibilityPassed': True,
+                                  'evidence': 'Fixture current detail is a fit'})
+        self.guard.observe(self.page(body='已向BOSS发送消息',
+                                     detail={'key': 'boss:job-a', 'text': 'Fixture full backend JD', 'complete': True}))
+        pending = self.guard.reserve('dismiss-receipt', {})
+        self.assertEqual(pending['operation'], 'dismiss-receipt')
+        self.guard.observe(self.page(detail={'key': 'boss:job-a', 'text': 'Fixture full backend JD', 'complete': True}))
+
+        request = self.request('boss:job-a')
+        action = store.begin(self.root, self.token, request)
+        self.guard.observe(self.page(body='已向BOSS发送消息',
+                                     detail={'key': 'boss:job-a', 'text': 'Fixture full backend JD', 'complete': True}))
+        with self.assertRaisesRegex(store.StoreError, 'reconcile-before-dismiss'):
+            self.guard.reserve('dismiss-receipt', {})
+        self.assertEqual(store.load_state(self.root)['actions'][action['id']]['status'], 'pending')
+
     def test_scroll_may_traverse_completed_batch_before_loading_more(self):
         self.batch()
         self.screen('boss:job-a', 'skipped')
@@ -93,6 +221,11 @@ class BrowsingOrderTests(BrowsingFixture):
         self.assertFalse(self.guard.capture_list()['mayScroll'])
         with self.assertRaises(store.StoreError):
             self.guard.reserve('scroll', {})
+        result = self.guard.finish_list_read({'evidence': 'Observed bottom of processed batch, no new cards and no loading.'})
+        self.assertFalse(result['exhaustionVerified'])
+        self.assertIsNone(self.guard.status()['flow']['pending'])
+        with self.assertRaises(store.StoreError):
+            self.guard.finish_list_read({'evidence': 'No matching pending scroll'})
 
     def test_detail_requires_captured_list_and_explicit_screen(self):
         self.guard.start_query(self.query)
@@ -259,6 +392,23 @@ class BrowsingFilterTests(BrowsingFixture):
     def test_allowed_experience_nonempty_subset_is_accepted(self):
         self.query['experience'] = ['应届生', '1年以内']
         self.assertEqual(self.batch()['batch']['query']['experience'], self.query['experience'])
+
+    def test_salary_filter_is_validated_when_policy_enables_it(self):
+        policy = store.load_policy(self.root)
+        policy['search']['salaryFilter'] = {
+            'enabled': True, 'allowedLabels': ['10-20K'], 'selectedLabels': ['10-20K']}
+        store.write_json(self.root / 'policy.json', policy)
+        query = {**self.query, 'salary': ['10-20K']}
+        with self.assertRaisesRegex(store.StoreError, 'salary-outside-policy'):
+            self.guard.start_query({**query, 'salary': ['20-50K']})
+        self.guard.start_query(query)
+        page = self.page()
+        page['filters']['salary'] = ['10-20K']
+        self.guard.observe(page)
+        self.assertEqual(self.guard.capture_list()['batch']['query']['salary'], ['10-20K'])
+        with self.assertRaisesRegex(store.StoreError, 'visible-selected-filters-do-not-match-query'):
+            self.guard.observe({**page, 'filters': {**page['filters'], 'salary': ['5-10K']}})
+            self.guard.capture_list()
 
     def test_empty_or_outside_policy_experience_is_rejected(self):
         for experience in ([], ['3-5年'], ['1-3年', '5-10年']):
@@ -550,6 +700,28 @@ class ScriptedTransport:
 
 
 class BrowsingEngineTests(BrowsingFixture):
+    def test_hover_filter_uses_one_pointer_move_and_no_outbox(self):
+        self.guard.start_query(self.query)
+        page = self.page(controls=[{'id': 'degree-menu', 'kind': 'filter-menu', 'filter': 'degree', 'label': '学历要求'}])
+        target = {'status': 'hover-target', 'id': 'degree-menu', 'x': 60, 'y': 25}
+        transport = ScriptedTransport(page, target, {'outcome': 'returned', 'result': {'ok': True, 'data': {}}}, page)
+        result = self.engine(transport).execute('control', {'id': 'degree-menu', 'interaction': 'hover'})
+        self.assertEqual(result['step']['status'], 'hovered')
+        self.assertEqual([action for action, _ in transport.calls], ['evaluate', 'evaluate', 'cdp', 'evaluate'])
+        self.assertEqual(transport.calls[2][1], {'method': 'Input.dispatchMouseEvent', 'params': {'type': 'mouseMoved', 'x': 60, 'y': 25}})
+        self.assertIsNone(self.guard.status()['flow']['pending'])
+        self.assertEqual(store.load_state(self.root)['actions'], {})
+
+    def test_unknown_hover_preserves_step_without_retry(self):
+        self.guard.start_query(self.query)
+        page = self.page(controls=[{'id': 'degree-menu', 'kind': 'filter-menu', 'filter': 'degree', 'label': '学历要求'}])
+        transport = ScriptedTransport(page, {'status': 'hover-target', 'x': 60, 'y': 25}, {'outcome': 'unknown'})
+        with self.assertRaisesRegex(store.StoreError, 'browser-outcome-unknown'):
+            self.engine(transport).execute('control', {'id': 'degree-menu', 'interaction': 'hover'})
+        self.assertEqual(len(transport.calls), 3)
+        self.assertIsNotNone(self.guard.status()['flow']['pending'])
+        self.assertEqual(store.load_state(self.root)['actions'], {})
+
     def request(self, key='boss:job-a'):
         return {**super().request(key), 'contentMode': 'platform-default', 'content': None}
 

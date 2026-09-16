@@ -31,15 +31,19 @@ const enabled = el => visible(el) && !el.disabled &&
   el.getAttribute('aria-disabled') !== 'true' && !el.classList.contains('disabled');
 const experienceLabel = value => /^(?:应届生|在校\/应届|在校生|1年以内|经验不限|不限|\d+[-–]\d+年|\d+年以上)$/.test(value);
 const degreeLabel = value => /^(?:不限|学历不限|初中及以下|高中|中专\/中技|大专|本科|硕士|博士)$/.test(value);
+const salaryLabel = value => /^(?:不限|3K以下|5-10K|10-20K|20-50K|50K以上|\d+[-–]\d+K|\d+K以下|\d+K以上)$/.test(value);
 const currentFilter = el => {
-  const name = text(el);
+  const name = text(el).replace(/\s*[（(]\d+[）)]$/, '');
   if (['工作经验', '经验'].includes(name)) return 'experience';
   if (['学历要求', '学历'].includes(name)) return 'degree';
+  if (['薪资待遇', '薪资范围', '薪资'].includes(name)) return 'salary';
   const root = el.closest('.condition-filter-select');
-  const owners = root ? ['experience', 'degree'].filter(kind =>
-    all(kind === 'experience' ? 'li[ka^="sel-job-rec-exp-"]' : 'li[ka^="sel-job-rec-degree-"]', root).length) : [];
+  const selectors = {experience: 'li[ka^="sel-job-rec-exp-"]',
+    degree: 'li[ka^="sel-job-rec-degree-"]', salary: 'li[ka^="sel-job-rec-salary-"]'};
+  const owners = root ? Object.keys(selectors).filter(kind => all(selectors[kind], root).length) : [];
   const kind = unique(owners);
-  return kind && (kind === 'experience' ? experienceLabel(name) : degreeLabel(name)) ? kind : null;
+  return kind && (kind === 'experience' ? experienceLabel(name) :
+    kind === 'degree' ? degreeLabel(name) : salaryLabel(name)) ? kind : null;
 };
 const selectedState = el => {
   const states = [el.getAttribute('aria-selected'), el.getAttribute('aria-checked')];
@@ -127,12 +131,14 @@ const controlRows = () => {
   // Unknown placeholder spans remain unsupported as action targets.
   for (const el of shown('.condition-filter-select .current-select')) {
     const filter = currentFilter(el);
-    if (filter) add(el, 'filter-menu', filter === 'degree' ? '学历要求' : '工作经验', filter);
+    if (filter) add(el, 'filter-menu', filter === 'degree' ? '学历要求' :
+      filter === 'salary' ? '薪资待遇' : '工作经验', filter);
   }
   for (const el of shown('button, [role="button"]')) {
     const name = el.getAttribute('aria-label') || text(el);
-    if (el.getAttribute('aria-haspopup') && ['工作经验', '经验', '城市', '工作地点'].includes(name))
-      add(el, 'filter-menu', name, ['城市', '工作地点'].includes(name) ? 'city' : 'experience');
+    if (el.getAttribute('aria-haspopup') && ['工作经验', '经验', '城市', '工作地点', '薪资待遇', '薪资范围', '薪资'].includes(name))
+      add(el, 'filter-menu', name, ['城市', '工作地点'].includes(name) ? 'city' :
+        ['薪资待遇', '薪资范围', '薪资'].includes(name) ? 'salary' : 'experience');
   }
   for (const el of shown('li[ka^="sel-job-rec-exp-"]')) {
     const label = text(el);
@@ -142,16 +148,23 @@ const controlRows = () => {
     const label = text(el);
     if (degreeLabel(label)) add(el, 'filter-option', label, 'degree', el.getAttribute('ka'));
   }
+  for (const el of shown('li[ka^="sel-job-rec-salary-"]')) {
+    const label = text(el);
+    if (salaryLabel(label)) add(el, 'filter-option', label, 'salary', el.getAttribute('ka'));
+  }
   // Accessible listboxes provide explicit filter ownership without guessing
   // the nesting or actions of an unknown city picker.
   for (const box of shown('[role="listbox"]')) {
     const name = box.getAttribute('aria-label');
     const filter = ['城市', '工作地点'].includes(name) ? 'city' :
-      ['工作经验', '经验'].includes(name) ? 'experience' : null;
+      ['工作经验', '经验'].includes(name) ? 'experience' :
+      ['薪资待遇', '薪资范围', '薪资'].includes(name) ? 'salary' : null;
     if (!filter) continue;
     for (const option of shown('[role="option"]', box)) {
       if (filter === 'experience' && !experienceLabel(text(option))) continue;
-      if (!option.matches('li[ka^="sel-job-rec-exp-"]'))
+      if (filter === 'salary' && !salaryLabel(text(option))) continue;
+      if (!option.matches('li[ka^="sel-job-rec-exp-"]') &&
+          !option.matches('li[ka^="sel-job-rec-salary-"]'))
         add(option, 'filter-option', text(option), filter, name);
     }
   }
@@ -177,6 +190,22 @@ const selectedDegree = () => {
   const distinct = [...new Set(values)];
   // This picker is single-choice; conflicting visible evidence stays unknown.
   return distinct.length === 1 ? distinct : [];
+};
+const selectedSalary = () => {
+  const selected = all('li[ka^="sel-job-rec-salary-"]').filter(selectedState);
+  for (const box of all('[role="listbox"]')) {
+    if (['薪资待遇', '薪资范围', '薪资'].includes(box.getAttribute('aria-label')))
+      selected.push(...all('[role="option"]', box).filter(selectedState));
+  }
+  const values = selected.map(el => (el.textContent || '').trim()).filter(salaryLabel);
+  if (!values.length) {
+    const triggers = shown('.condition-filter-select .current-select').filter(el => currentFilter(el) === 'salary');
+    if (triggers.length === 1) {
+      const value = text(triggers[0]);
+      if (salaryLabel(value)) values.push(value);
+    }
+  }
+  return [...new Set(values)];
 };
 const listRoot = () => unique(shown('.job-list-container'));
 const scrollTarget = () => {
@@ -225,13 +254,18 @@ const viewportBottom = scroller === document.scrollingElement ? innerHeight :
 const listTailBelowViewport = !!(scroller && tail &&
   scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 1 &&
   tail.getBoundingClientRect().bottom > viewportBottom + 1);
+const filters = {city: city ? text(city) : null, keyword: keyword ? keyword.el.value : null,
+  experience: onBoss ? selectedExperience() : [], degree: onBoss ? selectedDegree() : []};
+if (onBoss && (all('li[ka^="sel-job-rec-salary-"]').length ||
+    shown('.condition-filter-select .current-select').some(el => currentFilter(el) === 'salary')))
+  filters.salary = selectedSalary();
 return JSON.stringify({url: safeURL(currentURL), title: document.title,
   body: text(document.body), accountLabel: onBoss ? accountLabel() : null,
-  filters: {city: city ? text(city) : null, keyword: keyword ? keyword.el.value : null,
-    experience: onBoss ? selectedExperience() : [], degree: onBoss ? selectedDegree() : []},
+  filters,
   cards: cards.map(c => c.data), detail: detail ? detail.data : null,
   controls: controls.map(c => c.data), scrollable: onBoss && !!scrollTarget(),
-  endOfList: onBoss && endOfList(), loading: onBoss && loading(), listTailBelowViewport});
+  endOfList: onBoss && endOfList(), loading: onBoss && loading(), listTailBelowViewport,
+  scrollRemaining: scroller ? Math.max(0, scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop) : 0});
 })()"""
 
 
@@ -242,8 +276,8 @@ def action_script(operation: str, args: dict | None = None) -> str:
     A DOM mismatch returns ``unsupported`` without changing the page. Filling
     emits one native input event; it never clicks Search or sends Enter.
     """
-    allowed = {"control": {"id", "value"}, "open-detail": {"key"},
-               "scroll": set(), "submit": {"key"}, "dismiss-receipt": set()}
+    allowed = {"control": {"id", "value", "interaction"}, "open-detail": {"key"},
+               "scroll": set(), "submit": {"key"}, "dismiss-receipt": set(), "ack-quota-notice": {"actionId"}}
     if operation not in allowed or not isinstance(args if args is not None else {}, dict):
         raise ValueError("unsupported operation or argument type")
     args = {} if args is None else args
@@ -253,17 +287,31 @@ def action_script(operation: str, args: dict | None = None) -> str:
         raise ValueError("control requires an observed id")
     if "value" in args and not isinstance(args["value"], str):
         raise ValueError("control value must be a string")
+    if "interaction" in args and args["interaction"] != "hover":
+        raise ValueError("only explicit hover interaction is supported")
     if operation in {"open-detail", "submit"} and not re.fullmatch(r"boss:[A-Za-z0-9_-]+", str(args.get("key", ""))):
         raise ValueError("a stable boss job key is required")
     payload = json.dumps({"operation": operation, "args": args}, ensure_ascii=True)
     return "(() => {\nconst {operation, args} = " + payload + ";\n" + _DOM + r"""
 const run = () => {
   if (!onBoss) return unsupported('not-boss-origin');
-  if (!/^\/web\/geek\/jobs\/?$/.test(currentURL.pathname) && !jobURL(location.href))
+  const isJobPage = /^\/web\/geek\/jobs\/?$/.test(currentURL.pathname) || jobURL(location.href);
+  const homeControl = operation === 'control' && /^\/(?:[a-z]+\/)?$/.test(currentURL.pathname)
+    ? unique(controlRows().filter(row => row.data.id === args.id && ['keyword', 'search'].includes(row.data.kind))) : null;
+  if (!isJobPage && !homeControl)
     return unsupported('not-job-page');
   if (operation === 'control') {
     const control = unique(controlRows().filter(row => row.data.id === args.id));
     if (!control) return unsupported('control-missing-ambiguous-or-unsupported');
+    if (args.interaction === 'hover') {
+      if (control.data.kind !== 'filter-menu' || Object.prototype.hasOwnProperty.call(args, 'value'))
+        return unsupported('hover-only-for-filter-menu');
+      const r = control.el.getBoundingClientRect();
+      const x = r.left + r.width / 2, y = r.top + r.height / 2;
+      if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight)
+        return unsupported('filter-menu-outside-viewport');
+      return {status: 'hover-target', operation, id: args.id, x, y};
+    }
     if (control.data.kind === 'keyword') {
       if (!Object.prototype.hasOwnProperty.call(args, 'value')) return unsupported('keyword-value-required');
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
@@ -300,6 +348,23 @@ const run = () => {
         shown('[role="dialog"][aria-modal="true"]').length) return unsupported('dialog-or-receipt-present');
     detail.button.click();
     return {status: 'clicked', operation, key: args.key};
+  }
+  if (operation === 'ack-quota-notice') {
+    const notice = /您今天已与\s*\d+\s*位BOSS沟通[，,]\s*还剩\s*([1-9]\d*)\s*次沟通机会哦/;
+    const buttons = shown('*').filter(el => {
+      if (text(el) !== '好' || !enabled(el)) return false;
+      if (Array.from(el.children).some(child => visible(child) && text(child) === '好')) return false;
+      let dialog = el.parentElement;
+      for (let depth = 0; dialog && dialog !== document.body && depth < 6; depth++, dialog = dialog.parentElement) {
+        const value = text(dialog);
+        if (value.length < 200 && notice.test(value) && !/已向BOSS发送消息/.test(value)) return true;
+      }
+      return false;
+    });
+    const button = unique(buttons);
+    if (!button) return unsupported('positive-quota-notice-missing-or-ambiguous');
+    button.click();
+    return {status: 'clicked', operation};
   }
   if (operation === 'dismiss-receipt') {
     if (!/已向BOSS发送消息/.test(text(document.body))) return unsupported('receipt-not-present');

@@ -30,6 +30,12 @@ python scripts/store.py --data-dir ./demo-data set-policy --token TOKEN --file u
 
 ## 浏览操作的正式入口
 
+网页通道固定为 Kimi WebBridge，不能切到 `mcp__cua_repl` / `cua.*`。每次压缩、新轮次或中断恢复，在任何浏览器调用前重读 SKILL、drivers、当前 policy.browser 和 Kimi 技能，然后执行：
+```sh
+python scripts/browser_actions.py --data-dir ./demo-data --operation resume-context
+```
+该命令只读本地，不需要 token/session，不访问浏览器；返回 provider、禁止备用通道、策略指纹、已保存 session、账号上下文、限制和未完成步骤。已有策略中的 preferred=kimi-webbridge 保持兼容；新方案保存 required=kimi-webbridge、preferred=kimi-webbridge、allowFallback=false。当前入口在实际传输前拒绝其他 provider 或启用 fallback 的配置。
+
 先在本地检查状态，不为诊断主动访问招聘网站：
 ```sh
 python scripts/browser_actions.py --data-dir ./demo-data --platform boss --operation status
@@ -48,17 +54,20 @@ python scripts/browser_actions.py --data-dir ./demo-data --token TOKEN --platfor
   "city": "杭州",
   "keyword": "Python后端",
   "experience": ["应届生", "1年以内", "1-3年"],
+  "salary": ["10-20K"],
   "accountLabel": "本人求职账号"
 }
 ```
 
 此步骤只保存意图；还需通过 `control` 设置实际筛选并 `inspect` 读回，不能把示例当作已完成网页操作。
 
+`search.queries` 是非空的允许关键词列表，start-query 按原文精确校验；相关词、大小写或空格变体不自行加入。`targets.keywords` 仅保留画像检索兼容用途，不是扩大查询的授权。用户固定经验或薪资选项时，在对应 experienceFilter / salaryFilter 设置 enabled、allowedLabels、selectedLabels；selectedLabels 是本次必须完整选择的集合，入口拒绝擅自缩小或扩大。未配置 selectedLabels 的通用方案仍允许在 allowedLabels 内选择子集。个人选项不写入通用插件默认值。
+
 | operation | 数据与前置条件 |
 |---|---|
-| `start-query` | 保存本轮 city、keyword、experience、accountLabel 意图及当前资料 / 策略指纹；旧批次收尾后，配置变化会归档旧浏览决定并重新筛选 |
+| `start-query` | 保存本轮 city、keyword、experience、可选 salary、accountLabel 意图及当前资料 / 策略指纹；旧批次收尾后，配置变化会归档旧浏览决定并重新筛选 |
 | `select-account-context` | 纯本地记录用户明确区分的账号上下文，核对当前正常页面与显示名；归属旧限制、归档旧浏览上下文并保留全部 outbox，不修改 policy/profile |
-| `control` | 使用当前快照中的搜索 / 筛选控件 ID 与 value，配置期间单步操作 |
+| `control` | 使用当前快照中的搜索 / 筛选控件 ID 与 value，配置期间单步操作；悬停菜单可指定 `interaction: "hover"`，仅移动到当前可见菜单中心，之后重新观察选项 |
 | `capture-list` | 验证实际账号及页面选中条件，固定当前自然加载的新卡片批次 |
 | `screen` | 一个 key、shortlisted / skipped / deferred 决定与 evidence；依据当前列表粗筛 |
 | `open-detail` | 一个已经 shortlisted 的 key，且没有其他活动详情 |
@@ -68,11 +77,12 @@ python scripts/browser_actions.py --data-dir ./demo-data --token TOKEN --platfor
 | `reconcile` | 只核对当前已加载页面与原 outbox 动作，不因未知而重发 |
 | `dismiss-receipt` | 已有回执时单击当前确认层的“留在此页” |
 | `scroll` | 当前批次每项已有去向，详情及外发已收尾；正常滚动一次后再 capture-list 核对新增 ID |
+| `finish-list-read` | 已处理批次滚动到可见尾部，后续观察无新增、无加载状态时，用 evidence 结束此次读取；纯本地收尾，不宣称结果已穷尽 |
 | `clear-access-block` | 本地解除：最新 inspect 为正常页面，仍是原查询绑定的账号 / session，填写 evidence，且平台给出的 retryNotBefore 已过；本操作不访问网页 |
 
 首版浏览器适配支持 Boss 已识别页面上的搜索、筛选、单个详情和“立即沟通”。`submit` 不泛指普通回复、附件上传或任意表单提交；其它网站、新 UI、任意直链或尚未适配的网页操作返回 unsupported 并保存具体缺口，不直接调用裸传输。既有 store / audit 脚本仍可离线准备、检查和核对记录，这不证明其对应的网页动作已接入安全入口。
 
-当前结构化查询校验覆盖 city、keyword、experience 及账号显示名；policy 中其他硬条件仍须根据当前可见平台筛选设置并保存证据，脚本不自动理解任意策略文本。`accountLabel` 来自页面显示名，与 session 一起提供当前身份线索；当前适配器没有验证稳定唯一账号 ID，不能把同名视为同一账号，也不能用它证明线上资料版本一致。列表粗筛和 JD 判断分别记录。`eligibilityPassed` 不能直接由 1–3 年标签得出；证据应说明正文与真实正式工作经历相符，脚本不替 Agent 判断自然语言要求。平台仅支持单选经验时，可以在已授权经验集合内分次搜索，但每次都核对实际选中值，不能扩大到集合之外。
+当前结构化查询校验覆盖 city、keyword、experience、已配置的 salary 及账号显示名；policy 中其他硬条件仍须根据当前可见平台筛选设置并保存证据，脚本不自动理解任意策略文本。`search.salaryFilter` 启用时，`salary` 必须是其允许的 Boss 标签，并在页面读回中完全匹配；薪资标签是搜索范围，不代替对职位薪资口径的详情判断。`accountLabel` 来自页面显示名，与 session 一起提供当前身份线索；当前适配器没有验证稳定唯一账号 ID，不能把同名视为同一账号，也不能用它证明线上资料版本一致。列表粗筛和 JD 判断分别记录。`eligibilityPassed` 依据完整JD、当前用户允许的投递范围与身份/职责判断，不把已允许年限的个人工龄差异重新当成否决条件。脚本不替 Agent 判断自然语言要求。平台只支持单选且用户没有固定 selectedLabels 时可在 allowedLabels 内分次搜索；固定集合无法在平台表达时记录具体差异，不擅自删项。
 
 用户明确选择独立新账号时，先 `inspect` 记录已加载正常页面，再调用本地 `select-account-context`，文件结构如下。`contextId` 是本地明确上下文 ID，不冒充网站 ID；旧限制未绑定时须提供原上下文和原显示名。已有上下文返回时沿用原 ID，不要求重复声明新账号；改浏览器 session 仍须新观察和显式选择。已核验全局范围限制不能在此步骤归为单账号。
 

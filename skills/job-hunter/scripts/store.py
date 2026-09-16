@@ -23,6 +23,7 @@ KINDS = ("greet", "application", "reply", "share_resume", "commitment")
 HELD = {"pending", "unknown", "succeeded"}
 DEFAULT_POLICY = {
     "version": 2,
+    "browser": {"required": "kimi-webbridge", "preferred": "kimi-webbridge", "allowFallback": False},
     "platforms": [],
     "targets": {"keywords": [], "locations": [], "workModes": [], "salary": None,
                 "mustHave": [], "preferences": [], "exclude": [], "excludedCompanies": []},
