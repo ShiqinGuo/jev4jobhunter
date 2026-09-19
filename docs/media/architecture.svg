@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="640" viewBox="0 0 1120 640" role="img" aria-labelledby="title desc">
+<title id="title">Job Hunter / technical architecture</title><desc id="desc">The Agent reasons; the local runtime records and guards each browser step. Host supplies the model and scheduling. Unknown outcomes are reconciled before another send.</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0 0L8 4L0 8Z" fill="#C16A36"/></marker></defs>
+<rect width="1120" height="640" rx="24" fill="#FAF7F2"/>
+<g font-family="Segoe UI,DejaVu Sans,Arial,sans-serif">
+<text x="40" y="56" fill="#293B53" font-size="29" font-weight="600">Job Hunter / technical architecture</text>
+<text x="40" y="90" fill="#7D8794" font-size="17" font-weight="400">The Agent reasons; the local runtime records and guards each browser step.</text>
+<polyline points="320,216 407,216" fill="none" stroke="#C16A36" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="345" y="204" fill="#7D8794" font-size="14" font-weight="400">step</text>
+<polyline points="717,216 805,216" fill="none" stroke="#C16A36" stroke-width="2" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+<text x="725" y="204" fill="#7D8794" font-size="14" font-weight="400">command</text>
+<polyline points="180,405 180,306" fill="none" stroke="#C16A36" stroke-width="2" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+<text x="193" y="366" fill="#7D8794" font-size="14" font-weight="400">context</text>
+<polyline points="562,306 562,405" fill="none" stroke="#C16A36" stroke-width="2" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+<text x="578" y="366" fill="#7D8794" font-size="14" font-weight="400">read / persist</text>
+<polyline points="940,306 940,405" fill="none" stroke="#C16A36" stroke-width="2" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+<text x="785" y="366" fill="#7D8794" font-size="14" font-weight="400">DOM / action / receipt</text>
+<rect x="40" y="155" width="280" height="156" rx="16" fill="#E5DDD4"/>
+<rect x="40" y="150" width="280" height="156" rx="16" fill="#fff" stroke="#E5DDD4"/>
+<rect x="57" y="169" width="4" height="22" rx="2" fill="#C16A36"/>
+<text x="71" y="187" fill="#293B53" font-size="21" font-weight="600">Agent + Skill</text>
+<text x="60" y="222" fill="#7D8794" font-size="16" font-weight="400">Codex / Claude Code</text>
+<text x="60" y="248" fill="#7D8794" font-size="16" font-weight="400">Intake, matching, decisions</text>
+<text x="60" y="274" fill="#7D8794" font-size="16" font-weight="400">skills/job-hunter/SKILL.md</text>
+<rect x="407" y="155" width="310" height="156" rx="16" fill="#E5DDD4"/>
+<rect x="407" y="150" width="310" height="156" rx="16" fill="#fff" stroke="#E5DDD4"/>
+<rect x="424" y="169" width="4" height="22" rx="2" fill="#C16A36"/>
+<text x="438" y="187" fill="#293B53" font-size="21" font-weight="600">Guarded Python runtime</text>
+<text x="427" y="222" fill="#7D8794" font-size="16" font-weight="400">browser_actions.py</text>
+<text x="427" y="248" fill="#7D8794" font-size="16" font-weight="400">browsing_safety.py / policy_rules.py</text>
+<text x="427" y="274" fill="#7D8794" font-size="16" font-weight="400">boss_page.py: DOM adapter</text>
+<rect x="805" y="155" width="275" height="156" rx="16" fill="#E5DDD4"/>
+<rect x="805" y="150" width="275" height="156" rx="16" fill="#fff" stroke="#E5DDD4"/>
+<rect x="822" y="169" width="4" height="22" rx="2" fill="#C16A36"/>
+<text x="836" y="187" fill="#293B53" font-size="21" font-weight="600">Kimi WebBridge</text>
+<text x="825" y="222" fill="#7D8794" font-size="16" font-weight="400">webbridge_client.py</text>
+<text x="825" y="248" fill="#7D8794" font-size="16" font-weight="400">Local daemon + extension</text>
+<text x="825" y="274" fill="#7D8794" font-size="16" font-weight="400">Existing browser session</text>
+<rect x="40" y="410" width="280" height="130" rx="16" fill="#E5DDD4"/>
+<rect x="40" y="405" width="280" height="130" rx="16" fill="#fff" stroke="#E5DDD4"/>
+<rect x="57" y="424" width="4" height="22" rx="2" fill="#C16A36"/>
+<text x="71" y="442" fill="#293B53" font-size="21" font-weight="600">Personal context</text>
+<text x="60" y="477" fill="#7D8794" font-size="16" font-weight="400">profile.md: supplied facts</text>
+<text x="60" y="503" fill="#7D8794" font-size="16" font-weight="400">policy.json: strategy + consent</text>
+<rect x="407" y="410" width="310" height="130" rx="16" fill="#E5DDD4"/>
+<rect x="407" y="405" width="310" height="130" rx="16" fill="#fff" stroke="#E5DDD4"/>
+<rect x="424" y="424" width="4" height="22" rx="2" fill="#C16A36"/>
+<text x="438" y="442" fill="#293B53" font-size="21" font-weight="600">Local durable state</text>
+<text x="427" y="477" fill="#7D8794" font-size="16" font-weight="400">store.py / state.json</text>
+<text x="427" y="503" fill="#7D8794" font-size="16" font-weight="400">Progress, deduplication, receipts</text>
+<rect x="805" y="410" width="275" height="130" rx="16" fill="#E5DDD4"/>
+<rect x="805" y="405" width="275" height="130" rx="16" fill="#fff" stroke="#E5DDD4"/>
+<rect x="822" y="424" width="4" height="22" rx="2" fill="#C16A36"/>
+<text x="836" y="442" fill="#293B53" font-size="21" font-weight="600">BOSS website</text>
+<text x="825" y="477" fill="#7D8794" font-size="16" font-weight="400">Read one job at a time</text>
+<text x="825" y="503" fill="#7D8794" font-size="16" font-weight="400">Default greeting + receipt</text>
+<text x="40" y="610" fill="#7D8794" font-size="15" font-weight="400">Host supplies the model and scheduling. Unknown outcomes are reconciled before another send.</text>
+</g></svg>

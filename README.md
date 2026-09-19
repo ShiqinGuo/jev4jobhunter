@@ -1,18 +1,73 @@
 <h1 align="center">Job Hunter</h1>
-<p align="center">在 Agent 对话里找岗位、明确求职策略，并逐项完成已授权的沟通。</p>
+<p align="center">让 Agent 按你的条件筛岗位，解释匹配理由，并记住每一步进展。</p>
 <p align="center">
   <a href="https://github.com/ShiqinGuo/job-hunter/releases/latest"><img alt="Version" src="https://img.shields.io/github/v/release/ShiqinGuo/job-hunter?color=2563eb"></a>
   <a href="https://github.com/ShiqinGuo/job-hunter/actions/workflows/test.yml"><img alt="Tests" src="https://github.com/ShiqinGuo/job-hunter/actions/workflows/test.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2563eb"></a>
 </p>
-<p align="center"><a href="#快速开始">快速开始</a> · <a href="#当前支持范围">支持范围</a> · <a href="CHANGELOG.md">更新记录</a> · <a href="https://github.com/ShiqinGuo/job-hunter/issues">反馈问题</a></p>
+<p align="center"><a href="README.en.md">English</a> · <a href="#快速开始">快速开始</a> · <a href="#技术架构">技术架构</a> · <a href="#当前支持范围">支持范围</a> · <a href="CHANGELOG.md">更新记录</a> · <a href="https://github.com/ShiqinGuo/job-hunter/issues">反馈问题</a></p>
 
 **Job Hunter** 是面向个人求职的 Agent 插件，也可作为独立 Skill 使用。你提供简历和目标，Agent 帮你补齐影响筛选的信息、阅读岗位、解释匹配理由，并按明确授权推进沟通。个人资料和执行记录保存在本地目录。
 
-当前版本 **0.4.1**：固定 Kimi WebBridge 通道，压缩后重新读取通道与断点；收紧搜索条件并修正列表耗尽判断。可安装到 Codex、Claude Code，或加载到支持 Skill 的宿主；网页执行以已适配的入口为准。
+![Job Hunter 功能动画：个人条件连接岗位要求，保留未知项，按授权沟通并核验回执、保存记录](docs/media/demo.gif)
+
+*程序绘制的功能演绎，使用虚构资料；不是产品界面录屏。动效展示「条件 → 匹配依据 → 授权沟通 → 回执与历史」。[查看静态图](docs/media/demo-poster.png)*
+
+**开始使用：** [Codex / Claude Code 安装](#快速开始) · [下载插件](https://github.com/ShiqinGuo/job-hunter/releases/latest) · [真实验证范围](VALIDATION.md)
+
+支持 **Codex、Claude Code 和兼容 Skill 的宿主**。当前网页执行适配 **BOSS 直聘**，使用 **Kimi Browser Extension / Kimi WebBridge**；其他网站可先分析用户提供的材料，具体支持范围见下文。
+
+English: an AI job-search assistant for resume-based job matching, authorized BOSS outreach, application tracking and resumable progress. [Read the English guide](README.en.md).
+
+## 快速开始
+需要支持 Skill 的 Agent 宿主和 **Python 3.10+**。核心 Python 脚本仅使用标准库；执行网页操作还需要当前入口支持的浏览器通道。无需为插件单独配置模型 API Key，模型由宿主提供。
+
+### 1. 安装到 Agent 宿主
+
+#### Codex
+
+使用提供 `plugin add` 的 Codex CLI：
+
+```sh
+codex plugin marketplace add ShiqinGuo/job-hunter
+codex plugin add job-hunter@job-hunter
+```
+
+若当前 CLI 没有 `plugin add`，在客户端插件目录中安装，或使用客户端附带的新版可执行文件。升级已有安装时先运行 `codex plugin marketplace upgrade job-hunter`，再运行上面的 `plugin add`。
+
+#### Claude Code
+
+```sh
+claude plugin marketplace add ShiqinGuo/job-hunter
+claude plugin install job-hunter@job-hunter
+```
+
+升级使用 `claude plugin marketplace update job-hunter` 和 `claude plugin update job-hunter@job-hunter`。
+
+#### 独立 Skill
+
+从 [Releases](https://github.com/ShiqinGuo/job-hunter/releases) 下载发布包，将 `skills/job-hunter` **整个目录**放入宿主支持的 Skill 目录，保留 references、scripts 和 agents。也可直接在对话里指定源码路径。
+
+### 2. 准备浏览器环境
+
+网页筛选还需要 [Kimi 浏览器扩展与本机 daemon](https://www.kimi.com/products/kimi-webbridge)，以及宿主可读取的 `kimi-webbridge` Skill。在官方页面选择“搭配本地 Agent”，按说明完成安装和连接，在对应浏览器登录 BOSS 直聘；请先让 Agent 确认 Kimi 连接与当前登录状态。
+
+安装 Job Hunter 插件不会同时安装这些浏览器组件。暂未准备浏览器时，可以先提供简历和岗位描述做本地匹配分析。
+
+网页操作固定通过 **Kimi Browser Extension / Kimi WebBridge**，需安装对应技能与本机 daemon，并在该浏览器正常登录。会话压缩、新轮次或中断后，先执行本地 `resume-context` 并重读通道规则；不自动改用 Codex 自带浏览器、CUA 或 computer-use。Kimi 不可用时保存断点，仍可完成本地分析与草稿。
+
+
+### 3. 开始第一个任务
+
+安装或升级后在新对话加载。首次可以这样说：
+
+> 根据我的简历和求职条件，先找 5 个合适岗位，说明匹配依据和缺口；暂不发送消息。只问我会影响当前筛选的缺失信息。
+
+需要执行时，把目标和授权说清楚：
+
+> 对这些已筛选通过的岗位，使用平台当前招呼语发起沟通，逐项核验结果。
 
 ## 核心能力
-
 | 能力 | 能帮你做什么 |
 |---|---|
 | 求职信息引导 | 从已有简历提取事实，只补问会改变筛选或回复的信息；回答保存后复用 |
@@ -25,7 +80,6 @@
 | 定时与日报 | 由宿主触发任务，插件记录轮次与交付，支持发现漏跑和补报 |
 
 ## 使用流程
-
 ```mermaid
 flowchart LR
     A[简历与求职条件] --> B[补齐关键缺项]
@@ -42,46 +96,14 @@ flowchart LR
 
 当前自然加载的列表处理完，才滚动一次获取新增岗位。数量目标不改变这个顺序，也不授权批量预取详情。
 
-## 快速开始
+## 技术架构
+![Job Hunter 技术架构：Agent 与 Skill 调用本地受约束的 Python 入口，通过 Kimi WebBridge 操作 BOSS；个人条件与执行状态保存在本地](docs/media/architecture.svg)
 
-需要支持 Skill 的 Agent 宿主和 **Python 3.10+**。核心 Python 脚本仅使用标准库；执行网页操作还需要当前入口支持的浏览器通道。无需为插件单独配置模型 API Key，模型由宿主提供。
+宿主 Agent 提供模型和推理，Skill 组织信息补充与匹配。网页步骤经过 `browser_actions.py`、`browsing_safety.py` 和策略检查，再通过 `webbridge_client.py` 调用 Kimi；`boss_page.py` 负责页面观察与适配。`store.py` 保存进度、防重与回执。这个入口约束经过它的操作，不是隔离其他脚本的浏览器沙箱。
 
-### Codex
-
-使用提供 `plugin add` 的 Codex CLI：
-
-```sh
-codex plugin marketplace add ShiqinGuo/job-hunter
-codex plugin add job-hunter@job-hunter
-```
-
-若当前 CLI 没有 `plugin add`，在客户端插件目录中安装，或使用客户端附带的新版可执行文件。升级已有安装时先运行 `codex plugin marketplace upgrade job-hunter`，再运行上面的 `plugin add`。
-
-### Claude Code
-
-```sh
-claude plugin marketplace add ShiqinGuo/job-hunter
-claude plugin install job-hunter@job-hunter
-```
-
-升级使用 `claude plugin marketplace update job-hunter` 和 `claude plugin update job-hunter@job-hunter`。
-
-### 独立 Skill
-
-从 [Releases](https://github.com/ShiqinGuo/job-hunter/releases) 下载发布包，将 `skills/job-hunter` **整个目录**放入宿主支持的 Skill 目录，保留 references、scripts 和 agents。也可直接在对话里指定源码路径。
-
-安装或升级后在新对话加载。首次可以这样说：
-
-> 根据我的简历和求职条件，先找 5 个合适岗位，说明匹配依据和缺口；暂不发送消息。只问我会影响当前筛选的缺失信息。
-
-需要执行时，把目标和授权说清楚：
-
-> 对这些已筛选通过的岗位，使用平台当前招呼语发起沟通，逐项核验结果。
-
-网页操作固定通过 **Kimi Browser Extension / Kimi WebBridge**，需安装对应技能与本机 daemon，并在该浏览器正常登录。会话压缩、新轮次或中断后，先执行本地 `resume-context` 并重读通道规则；不自动改用 Codex 自带浏览器、CUA 或 computer-use。Kimi 不可用时保存断点，仍可完成本地分析与草稿。
+资料、策略和状态留在本地目录；定时触发由宿主提供。[运行说明](skills/job-hunter/references/runtime.md) · [素材与生成方式](docs/media/README.md)
 
 ## 当前支持范围
-
 | 场景 | 0.4.1 状态 |
 |---|---|
 | BOSS 平台筛选、列表、单个详情、默认招呼 | 已接入统一入口；已有一次真实沟通回执验证 |
@@ -93,7 +115,6 @@ claude plugin install job-hunter@job-hunter
 这版收紧了网页执行入口：旧版本中依赖临时浏览器脚本的操作，不代表已接入新版。**升级前结束当前运行，保留个人数据，在新对话重新加载。**
 
 ## 浏览与发送规则
-
 - 先用平台可见筛选器缩小范围，不靠不断扩大详情读取追求数量。
 - 当前列表先粗筛与去重；一个详情完成判断及必要回执核验后，再处理下一项。
 - 资料或策略变化会使旧审核失效；成功和未知发送记录继续防重。
@@ -103,7 +124,6 @@ claude plugin install job-hunter@job-hunter
 详见 [页面浏览策略](skills/job-hunter/references/browsing-safety.md)。真实验证范围包括一次授权的新沟通及迟到回执核对，不包含 50/150 次连续投递、普通回复或附件发送；不作免封控承诺。
 
 ## 个人数据与恢复
-
 每个求职方案使用独立目录，按明确的 `--data-dir` → `JOB_HUNTER_HOME` → `~/.job-hunter` 解析。同一账号共享联系历史；独立账号的上下文与适用限制须明确归属。
 
 | 文件 | 内容 |
@@ -116,7 +136,6 @@ claude plugin install job-hunter@job-hunter
 发布包不包含个人简历、账号配置、聊天或投递记录。核心状态格式保持 v2，升级保留历史；现有未完成动作先核对，再恢复浏览。
 
 ## 文档导航
-
 | 文档 | 内容 |
 |---|---|
 | [信息补充引导](skills/job-hunter/references/intake.md) | 如何从模糊目标形成可执行的筛选条件 |
@@ -128,10 +147,10 @@ claude plugin install job-hunter@job-hunter
 | [维护方向](ROADMAP.md) | 后续适配与验证工作 |
 
 ## 最近更新
-
 | 版本 | 日期 | 主要变化 |
 |---|---|---|
-| **0.4.0** | 2026-09-15 | 逐步浏览检查、账号上下文、页面适配、资料变更后重审和信息引导 |
+| **0.4.1** | 2026-09-16 | 固定 Kimi 通道、压缩后恢复与查询约束 |
+| 0.4.0 | 2026-09-15 | 逐步浏览检查、账号上下文、页面适配、资料变更后重审和信息引导 |
 | 0.3.0 | 2026-09-08 | 结构化授权、申请防重、策略更新、运行恢复与日报补报 |
 
 完整记录见 [CHANGELOG.md](CHANGELOG.md)。欢迎提交脱敏复现和改进建议；项目采用 [MIT](LICENSE) 许可证。
