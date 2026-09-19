@@ -45,8 +45,8 @@ const request = JSON.parse(fs.readFileSync(0, 'utf8'));
     for (const source of request.scripts) {
       // Only the location argument is substituted; queries/layout/events use a
       // real offline Chromium DOM. No navigation or BOSS connection takes place.
-      values.push(await page.evaluate(({source, href}) =>
-        JSON.parse(new Function('location', 'return (' + source + ')')({href})),
+      values.push(await page.evaluate(async ({source, href}) =>
+        JSON.parse(await new Function('location', 'return (' + source + ')')({href})),
         {source, href: request.url || 'https://www.zhipin.com/web/geek/jobs?securityId=do-not-export'}));
     }
     const calls = await page.evaluate(() => window.fixtureCalls);

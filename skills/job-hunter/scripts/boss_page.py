@@ -85,6 +85,8 @@ const cardRows = () => shown('.job-card-wrap').map(el => {
 const detailRow = cards => {
   const panel = unique(shown('.job-detail-container'));
   if (!panel) return null;
+  if (shown('[class*="skeleton"], [aria-busy="true"]',panel).length)
+    return {el:panel,button:null,data:{key:null,text:'',button:null,loading:true}};
   const value = text(panel);
   const active = unique(cards.filter(c => c.el.classList.contains('active')));
   let key = null;
@@ -260,6 +262,8 @@ if (onBoss && (all('li[ka^="sel-job-rec-salary-"]').length ||
     shown('.condition-filter-select .current-select').some(el => currentFilter(el) === 'salary')))
   filters.salary = selectedSalary();
 return JSON.stringify({url: safeURL(currentURL), title: document.title,
+  fullUrl: currentURL.href,
+  visibility: document.visibilityState,
   body: text(document.body), accountLabel: onBoss ? accountLabel() : null,
   filters,
   cards: cards.map(c => c.data), detail: detail ? detail.data : null,

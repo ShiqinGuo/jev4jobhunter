@@ -10,13 +10,17 @@ from urllib.parse import urlsplit
 
 import store
 import boss_page
+import boss_chat
+import browser_workflows
 from browsing_safety import Safety
 import webbridge_client
+from operation_metrics import Measurement, compact
 from policy_rules import browser_route
 
 OPERATIONS = ('status', 'resume-context', 'recover-page', 'inspect', 'start-query', 'control', 'capture-list', 'screen',
               'open-detail', 'review-detail', 'submit', 'reconcile', 'scroll',
-              'dismiss-receipt', 'ack-quota-notice', 'clear-access-block', 'defer-detail', 'select-account-context', 'finish-list-read')
+              'dismiss-receipt', 'ack-quota-notice', 'clear-access-block', 'defer-detail', 'select-account-context', 'finish-list-read',
+              'focus-page', 'release-focus', 'open-page', 'select-page', 'restore-filters', 'revisit-candidate', 'inspect-session', 'screenshot', *boss_chat.OPERATIONS, *browser_workflows.OPERATIONS)
 
 
 class BrowserError(store.StoreError):
@@ -35,7 +39,44 @@ class Engine:
         if platform != 'boss':
             raise store.StoreError('platform-adapter-unsupported')
         self.safety = Safety(root, token, platform, session)
-        self.transport = transport or (lambda action, args: webbridge_client.command_file(session, action, args))
+        self._send = transport or (lambda action, args: webbridge_client.command_file(session, action, args))
+        self.measurement = None
+
+    def transport(self, action, args):
+        result = self.measurement.transport(self._send, action, args) if self.measurement else self._send(action, args)
+        if action == 'list_tabs' and result.get('outcome') == 'returned':
+            data=result.get('result',{}).get('data',{})
+            if data.get('success') is True and isinstance(data.get('tabs'),list):
+                with store.transaction(self.safety.root):
+                    state,flow=self.safety._state()
+                    registry=flow.setdefault('pageRegistry',{}).setdefault(self.safety.session,{})
+                    registry.update(tabs=data['tabs'],inventoryAt=store.stamp())
+                    self.safety._save(state)
+        return result
+
+    def execute(self, operation: str, data: dict | None = None) -> dict:
+        if self.measurement or operation in ('status','resume-context'):
+            return self._execute(operation, data)
+        # Require the existing run lock before creating operation evidence.
+        self.safety._state()
+        measurement = self.measurement = Measurement(operation, self.safety.session)
+        result, error = {}, None
+        try:
+            result = self._execute(operation, data)
+            return result
+        except (ValueError, OSError, KeyError) as failure:
+            error = failure
+            raise
+        finally:
+            self.measurement = None
+            try:
+                metrics = measurement.save(self.safety.root, result, error)
+                result['metrics'] = metrics
+                if error is not None:
+                    error.operation_metrics = metrics
+            except OSError:
+                # Never make a completed external action look retryable due to telemetry.
+                result['metricsWarning'] = 'metrics-unavailable:inspect-outbox-do-not-resend'
 
     def _call(self, script: str, *, read_only: bool = False) -> dict:
         result = self.transport('evaluate', {'code': script})
@@ -60,6 +101,8 @@ class Engine:
             raise store.StoreError('recover-page-takes-no-url-or-other-arguments')
         self.safety.preflight()
         flow = self.safety.status()['flow']
+        if flow.get('focusEmulated'):
+            self.execute('release-focus')
         if flow.get('session') and flow['session'] != self.safety.session:
             raise store.StoreError('recovery-must-use-saved-kimi-session')
         if (flow.get('pending') or {}).get('operation') == 'submit':
@@ -92,6 +135,9 @@ class Engine:
             self.safety._save(state)
         result = self.transport(operation, args)
         returned = result.get('outcome') == 'returned' and (result.get('result', {}).get('data') or {}).get('success') is True
+        actual_url = (result.get('result', {}).get('data') or {}).get('url')
+        if actual_url and urlsplit(actual_url).path.rstrip('/') != '/web/geek/jobs':
+            returned = False
         with store.transaction(self.safety.root):
             state, flow = self.safety._state()
             flow['pageRecovery'].update(status='returned' if returned else 'unknown')
@@ -104,7 +150,7 @@ class Engine:
                 'step': operation, 'url': args['url'], 'nextAction': 'inspect-and-revalidate-account-and-filters',
                 'submissionVerified': False}
 
-    def execute(self, operation: str, data: dict | None = None) -> dict:
+    def _execute(self, operation: str, data: dict | None = None) -> dict:
         data = data or {}
         if operation not in OPERATIONS or not isinstance(data, dict):
             raise store.StoreError('known-operation-and-object-required')
@@ -118,7 +164,7 @@ class Engine:
             flow = status['flow']
             # Do not bury the required route behind thousands of historical candidates.
             checkpoint = {key: flow.get(key) for key in ('query', 'batch', 'phase', 'activeKey',
-                          'pending', 'pageRecovery', 'lastObservation')}
+                          'pending', 'pageRecovery', 'lastObservation', 'backlog', 'retainedBatches', 'focusEmulated')}
             return {'browser': route, 'policyFingerprint': store.fingerprint(policy),
                     'session': context.get('session') or flow.get('session'),
                     'platform': status['platform'], 'accessBlock': status['accessBlock'],
@@ -127,9 +173,95 @@ class Engine:
                     'networkCalls': 0}
         if operation == 'recover-page':
             return self._recover_page(data)
+        if operation in browser_workflows.OPERATIONS:
+            return browser_workflows.execute(self,operation,data)
+        if operation in ('inspect-session', 'screenshot'):
+            self.safety._state()
+            result = self.transport('list_tabs' if operation == 'inspect-session' else 'screenshot', {})
+            if result.get('outcome') != 'returned':
+                raise BrowserError(result, read_only=True)
+            return {'operation':operation, 'session':self.safety.session, 'inventory':result['result'].get('data')}
+        if operation in ('open-page', 'select-page'):
+            self.safety.preflight()
+            if self.safety.status()['flow'].get('focusEmulated'):
+                self.execute('release-focus')
+            paths = {'jobs':'jobs', 'chat':'chat', 'resume':'resume'}
+            detail = operation == 'select-page' and data.get('page') == 'detail'
+            if detail:
+                import re
+                if set(data) != {'page','key'} or not re.fullmatch(r'boss:[A-Za-z0-9_-]+',str(data.get('key',''))):
+                    raise store.StoreError('known-boss-detail-key-required')
+                url = 'https://www.zhipin.com/job_detail/' + data['key'][5:] + '.html'
+            elif set(data) != {'page'} or data['page'] not in paths:
+                raise store.StoreError('known-boss-page-required')
+            else:
+                url = 'https://www.zhipin.com/web/geek/' + paths[data['page']]
+            selected_url = url
+            select_args = {}
+            if operation == 'open-page' and data['page'] == 'jobs':
+                listed = self.transport('list_tabs', {})
+                if listed.get('outcome') != 'returned':
+                    raise BrowserError(listed, read_only=True)
+                urls = {t['url'] for t in listed.get('result',{}).get('data',{}).get('tabs',[])
+                        if urlsplit(t.get('url','')).scheme == 'https' and
+                        urlsplit(t.get('url','')).netloc == 'www.zhipin.com' and
+                        urlsplit(t.get('url','')).path.rstrip('/') == '/web/geek/jobs'}
+                if len(urls) > 1:
+                    raise store.StoreError('multiple-job-queries:inspect-session')
+                if urls:
+                    selected_url = urls.pop()
+            if operation == 'select-page':
+                listed = self.transport('list_tabs', {})
+                if listed.get('outcome') != 'returned':
+                    raise BrowserError(listed, read_only=True)
+                matches = [t for t in listed.get('result',{}).get('data',{}).get('tabs',[])
+                           if urlsplit(t.get('url','')).scheme == 'https' and
+                           urlsplit(t.get('url','')).netloc == 'www.zhipin.com' and
+                           urlsplit(t.get('url','')).path.rstrip('/') == urlsplit(url).path]
+                if len(matches) != 1:
+                    raise store.StoreError('unique-session-page-required:inspect-session')
+                selected_url = matches[0]['url']
+                if matches[0].get('borrowed'):
+                    if not matches[0].get('active'):
+                        raise store.StoreError('borrowed-task-page-not-active:inspect-session')
+                    select_args['active'] = True
+            result = self.transport('find_tab' if operation == 'select-page' else 'navigate', {'url':selected_url, **select_args})
+            if result.get('outcome') != 'returned' or result.get('result',{}).get('data',{}).get('success') is not True:
+                raise BrowserError(result,read_only=False)
+            actual = result.get('result',{}).get('data',{}).get('url')
+            if actual and (urlsplit(actual).scheme, urlsplit(actual).netloc, urlsplit(actual).path.rstrip('/')) != ('https','www.zhipin.com',urlsplit(url).path):
+                raise store.StoreError('navigation-returned-wrong-page:inspect-session:' + str(actual))
+            return {'operation':operation,'url':url,'returnedUrl':actual,'nextAction':'inspect-and-verify-account'}
+        if operation == 'release-focus':
+            self.safety._state()
+            result = self.transport('cdp', {'method':'Emulation.setFocusEmulationEnabled','params':{'enabled':False}})
+            if result.get('outcome') != 'returned':
+                raise BrowserError(result,read_only=True)
+            with store.transaction(self.safety.root):
+                state,flow = self.safety._state()
+                flow['focusEmulated']=False
+                self.safety._save(state)
+            return {'operation':operation,'focusEmulated':False}
+        if operation == 'focus-page':
+            self.safety.preflight()
+            if self.measurement:
+                self.measurement.recoveries.append({'kind':'focus-page'})
+            emulated = self.transport('cdp', {'method':'Emulation.setFocusEmulationEnabled','params':{'enabled':True}})
+            if emulated.get('outcome') != 'returned':
+                raise BrowserError(emulated,read_only=True)
+            with store.transaction(self.safety.root):
+                state,flow = self.safety._state()
+                flow['focusEmulated']=True
+                self.safety._save(state)
+            result = self.transport('cdp', {'method': 'Page.bringToFront', 'params': {}})
+            if result.get('outcome') != 'returned' or result.get('result', {}).get('ok') is False:
+                raise BrowserError(result, read_only=True)
+            return {'operation': operation, 'focusEmulated':True, 'observation': self._inspect()}
+        if operation in boss_chat.OPERATIONS:
+            return boss_chat.execute(self, operation, data)
         if operation == 'inspect':
             return self._inspect()
-        if operation in ('start-query', 'screen', 'review-detail', 'clear-access-block', 'defer-detail', 'select-account-context', 'finish-list-read'):
+        if operation in ('start-query', 'restore-filters', 'revisit-candidate', 'screen', 'review-detail', 'clear-access-block', 'defer-detail', 'select-account-context', 'finish-list-read'):
             return getattr(self.safety, operation.replace('-', '_'))(data)
         if operation == 'reconcile':
             return self._reconcile(data)
@@ -143,7 +275,26 @@ class Engine:
             store.validate_content_mode(data['request'])
         # This precedes even passive inspection: blocked heartbeats make zero browser calls.
         self.safety.preflight()
-        self._inspect()
+        prior_controls = []
+        flow = self.safety.status()['flow']
+        if operation == 'control' and flow.get('lastObservation'):
+            prior_controls = self.safety._last_page(flow).get('controls', [])
+        before = self._inspect()
+        prior = next((c for c in prior_controls if c.get('id') == data.get('id')), {})
+        if (operation == 'control' and prior.get('kind') == 'filter-option' and
+                data.get('id') not in {c['id'] for c in before['page'].get('controls', [])}):
+            menus = [c for c in before['page'].get('controls', []) if c.get('kind') == 'filter-menu'
+                     and c.get('filter') == prior.get('filter')]
+            if len(menus) == 1:
+                # One bounded re-expansion of the same observed menu. Never retry a send.
+                if self.measurement:
+                    self.measurement.recoveries.append({'kind':'reopen-menu','filter':prior.get('filter')})
+                recovered = self.execute('control', {'id':menus[0]['id'], 'interaction':'hover'})
+                if 'observation' not in recovered:
+                    return {**recovered, 'nextAction':'observe-and-reopen-current-menu'}
+                before = recovered['observation']
+        if (operation in ('open-detail','scroll') or (operation == 'control' and data.get('interaction') == 'hover')) and before['page'].get('visibility') == 'hidden':
+            self.execute('focus-page')
         self.safety.preflight()
         if operation == 'capture-list':
             return self.safety.capture_list()
@@ -166,6 +317,10 @@ class Engine:
                 raise store.StoreError('browser-outcome-unknown:inspect-do-not-repeat')
             result = {**result, 'status': 'hovered'}
         observation = self._inspect()
+        if result.get('status') == 'hovered':
+            owner = next((c.get('filter') for c in observation['page'].get('controls', []) if c.get('id') == data.get('id')), None)
+            result['menuOpened'] = bool(owner) and any(c.get('kind') == 'filter-option' and c.get('filter') == owner
+                                      for c in observation['page'].get('controls', []))
         return {'step': result, 'observation': observation}
 
     def _submit(self, data: dict) -> dict:
@@ -305,16 +460,19 @@ def main() -> int:
     parser.add_argument('--session', default='')
     parser.add_argument('--operation', choices=OPERATIONS, required=True)
     parser.add_argument('--file', type=Path)
+    parser.add_argument('--output', choices=('compact','full'), default='compact')
     args = parser.parse_args()
     try:
         if args.operation not in ('status', 'resume-context') and (not args.token or not args.session):
             raise store.StoreError('run-token-and-browser-session-required')
         engine = Engine(args.data_dir.expanduser(), args.token, args.platform, args.session)
         result = engine.execute(args.operation, store.read_json(args.file) if args.file else {})
-        print(json.dumps(result, ensure_ascii=False))
+        print(json.dumps(compact(result) if args.output == 'compact' else result, ensure_ascii=False))
         return 0
     except (ValueError, OSError, KeyError) as error:
         details = {'cause': error.detail, 'nextAction': error.next_action} if isinstance(error, BrowserError) else {}
+        if hasattr(error,'operation_metrics'):
+            details['metrics']=error.operation_metrics
         print(json.dumps({'error': str(error), **details, 'noAutomaticRetry': True}, ensure_ascii=False))
         return 1
 

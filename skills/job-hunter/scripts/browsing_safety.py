@@ -46,7 +46,8 @@ def classify(page: dict) -> str:
         return 'access-restricted'
     if '/passport/zp/403' in url:
         return 'access-restricted'
-    normal = bool(page.get('cards') or page.get('detail') or page.get('controls'))
+    normal = bool(page.get('cards') or page.get('detail') or page.get('controls') or
+                  (page.get('chat') or {}).get('rows') or page.get('filenames'))
     if '安全检查' in body and not normal:
         return 'security-check'
     if ('登录' in body and not page.get('accountLabel') and not normal) or '登录查看完整内容' in body:
@@ -261,6 +262,9 @@ class Safety:
             flow['lastObservation'] = {'path': relative, 'at': store.stamp(),
                                        'classification': classification, 'session': self.session,
                                        'runTokenHash': store.fingerprint(self.token)}
+            flow.setdefault('pageRegistry',{}).setdefault(self.session,{}).update(
+                currentUrl=page.get('fullUrl',page.get('url')), accountLabel=page.get('accountLabel'),
+                observation=relative, observedAt=store.stamp())
             if classification in ('access-restricted', 'security-check', 'login-required'):
                 context = store.active_account_context(state, self.platform)
                 if context:
@@ -332,6 +336,54 @@ class Safety:
             if expected.get('salary') and set(actual.get('salary', [])) != set(expected['salary']):
                 raise store.StoreError('visible-selected-filters-do-not-match-query')
 
+    def restore_filters(self, data: dict) -> dict:
+        """Reapply the saved query after navigation, retaining all candidate decisions."""
+        if data:
+            raise store.StoreError('restore-filters-takes-no-query-overrides')
+        with store.transaction(self.root):
+            state, flow = self._state(active=True)
+            if not flow.get('query') or flow.get('pending') or flow.get('activeKey'):
+                raise store.StoreError('saved-idle-query-required')
+            self._verify(flow,self._last_page(flow),filters=False)
+            if flow.get('batch'):
+                flow['restoringBatch'] = flow['batch']
+            flow['phase']='configuring'
+            flow['events'].append({'at':store.stamp(),'operation':'restore-filters','query':flow['query']})
+            self._save(state)
+            return {'query':flow['query'],'phase':'configuring','decisionsPreserved':True}
+
+    def revisit_candidate(self, data: dict) -> dict:
+        """Reconsider a retained candidate only when it is naturally visible again."""
+        key = store.required_string(data, 'key')
+        evidence = store.required_string(data, 'evidence')
+        with store.transaction(self.root):
+            state, flow = self._state(active=True)
+            page = self._last_page(flow)
+            self._verify(flow, page)
+            candidate = flow['candidates'].get(key, {})
+            if flow.get('pending') or flow.get('activeKey') or flow['phase'] != 'batch':
+                raise store.StoreError('idle-current-batch-required')
+            if candidate.get('decision') not in ('deferred', 'unreviewed', 'shortlisted'):
+                raise store.StoreError('retained-unfinished-candidate-required')
+            card = next((c for c in page.get('cards', []) if c.get('key') == key), None)
+            if not card:
+                raise store.StoreError('candidate-no-longer-in-rendered-list')
+            reason = self._list_exclusion(state, card)
+            if reason:
+                raise store.StoreError('candidate-excluded:' + reason)
+            candidate.setdefault('reviews', []).append({'decision':candidate['decision'],
+                'evidence':candidate.get('reviewEvidence') or candidate.get('evidence'), 'at':store.stamp()})
+            candidate.update(card=card, decision='unreviewed', evidence=evidence,
+                             listEvidence=flow['lastObservation']['path'])
+            candidate.pop('detail', None)
+            if key not in flow['batch']['keys']:
+                flow['batch']['keys'].append(key)
+            flow['backlog'] = [k for k in flow.get('backlog', []) if k != key]
+            flow['endOfList'] = False
+            flow['events'].append({'at':store.stamp(),'operation':'revisit-candidate','key':key,'evidence':evidence})
+            self._save(state)
+            return {'key':key, 'decision':'unreviewed', 'nextAction':'screen'}
+
     def start_query(self, data: dict) -> dict:
         query = {k: data.get(k) for k in ('city', 'keyword', 'experience')}
         query['salary'] = data.get('salary', [])
@@ -400,6 +452,18 @@ class Safety:
                 # A passive read or spontaneous UI prefetch cannot expand the current batch.
                 return {'batch': flow['batch'], 'unchanged': True}
             previous = set(flow['seen'])
+            restoring = flow.get('restoringBatch')
+            if restoring:
+                visible = {c.get('key') for c in page.get('cards', [])}
+                unfinished = [k for k in restoring['keys'] if flow['candidates'][k]['decision'] not in TERMINAL]
+                if all(k in visible for k in unfinished):
+                    flow.update(batch=restoring, phase='batch', pending=None, endOfList=False)
+                    flow.pop('restoringBatch', None)
+                    self._save(state)
+                    return {'batch':restoring, 'restored':True, 'decisionsPreserved':True}
+                flow.setdefault('retainedBatches', []).append(restoring)
+                flow['backlog'] = list(dict.fromkeys([*flow.get('backlog', []), *unfinished]))
+                flow.pop('restoringBatch', None)
             cards = [c for c in page.get('cards', []) if isinstance(c.get('key'), str)
                      and c['key'].startswith(self.platform + ':') and len(c['key']) > len(self.platform) + 1
                      and (flow['phase'] == 'configuring' or c['key'] not in previous)]
@@ -439,8 +503,10 @@ class Safety:
                              'filterEvidence': flow['lastObservation']['path'], 'at': store.stamp()}
             flow['seen'].extend(k for k in keys if k not in previous)
             flow.update(pending=None, phase='batch', endOfList=bool(page.get('endOfList')))
+            flow['backlog'] = [k for k in flow.get('backlog', []) if k not in keys]
             self._save(state)
-            return {'batch': flow['batch'], 'candidates': {k: flow['candidates'][k] for k in keys}}
+            return {'batch': flow['batch'], 'candidates': {k: flow['candidates'][k] for k in keys},
+                    'retainedUnfinished':flow.get('backlog', [])}
 
     def _list_exclusion(self, state: dict, card: dict) -> str:
         key = card['key']

@@ -1,5 +1,23 @@
 # 生效配置、发送检查与定时恢复
 
+## 业务入口与测量
+
+`browser_actions.py` 保留单步入口，优先使用以下有边界的业务操作；全部经同一 Kimi session，仍需原运行锁、策略和账号检查。
+
+| operation | input JSON | 完成边界 |
+|---|---|---|
+| `ensure-page` | `{"page":"chat","waitMs":4000}`，page 可为 jobs/chat/resume | 先读实际 URL 与账号；当前页符合就复用，否则正常导航并等待。jobs 后仍须核对固定筛选 |
+| `open-conversation-and-wait` | `{"recipient":{"name":"HR","company":"Company"},"waitMs":4000}` | 单次打开，等同一账号、收件人和消息列表稳定，返回模型审阅 |
+| `open-detail-and-wait` | `{"key":"boss:JOB_ID","waitMs":4000}` | 单次打开，等精确职位及非骨架正文稳定，返回模型判断 |
+| `reply-and-verify` | `{"request":REVIEWED_CHAT_REQUEST,"waitMs":4000}` 或 `{"actionId":"ACTION_ID","waitMs":4000}` | 仅普通回复；request 使用下文 prepare-chat-send 的已审阅字段。内部登记、复核、填写、再复核、单次点击和被动核对 |
+| `wait-chat-receipt` | `{"actionId":"ACTION_ID","waitMs":4000}` | 只读核对既有回复或简历动作 |
+
+`waitMs` 是 0–10000 的整数。条件等待在一次 Kimi evaluate 内只读当前 DOM，连续两次满足精确身份及内容条件才 ready；超时返回 pending/unknown，不能以等待结束代替回执。发送动作已尝试、状态 unknown 或已经终结时，actionId 路线只核对，绝不再次点击发送。模糊传输结果也只被动恢复。附件分享与确认继续使用单步入口，不自动同意其他类型请求。
+
+CLI 默认 `--output compact`，去掉整页 body 和业务闭环中的其他会话列表，保留当前消息、JD、状态、下一步和证据路径。直接 inspect-chat 保留选择会话所需的列表；inspect 保留卡片。`--output full` 返回完整结构。原始结果和所有等待样本保存在 data-dir 的 logs/operations、logs/browsing；失败输出携带测量证据，便于展开诊断。
+
+每次顶层业务调用记录 elapsedMs、browserCalls、browserMs、waitMs、recoveryCount、status；elapsedMs 是执行器时间，不包括宿主模型思考和调用往返。失败和 unknown 都保留，不能只挑成功记录统计。页面登记按 session 保存完整 URL、现场账号、清单归属及最后观察；它不替代下一次动态页面检查。稳定策略校验仅按当前文件内容缓存，每次仍读取文件；授权、接管、来信、编辑器和附件版本在提交前重新检查。
+
 脚本相对于本 Skill 目录；示例 data-dir 是独立测试方案，请替换成用户选定目录。Python 3.10+，无第三方运行依赖。
 
 ## 唯一生效来源
@@ -82,7 +100,30 @@ python scripts/browser_actions.py --data-dir ./demo-data --token TOKEN --platfor
 | `finish-list-read` | 已处理批次滚动到可见尾部，后续观察无新增、无加载状态时，用 evidence 结束此次读取；纯本地收尾，不宣称结果已穷尽 |
 | `clear-access-block` | 本地解除：最新 inspect 为正常页面，仍是原查询绑定的账号 / session，填写 evidence，且平台给出的 retryNotBefore 已过；本操作不访问网页 |
 
-首版浏览器适配支持 Boss 已识别页面上的搜索、筛选、单个详情和“立即沟通”。`submit` 不泛指普通回复、附件上传或任意表单提交；其它网站、新 UI、任意直链或尚未适配的网页操作返回 unsupported 并保存具体缺口，不直接调用裸传输。既有 store / audit 脚本仍可离线准备、检查和核对记录，这不证明其对应的网页动作已接入安全入口。
+浏览器适配支持 Boss 搜索、原生筛选、单个详情、“立即沟通”，以及下述聊天入口。`submit` 仍只负责新岗位原生招呼；已有会话的回复和简历分享使用独立入口，不依赖搜索批次状态。未识别的具体控件保留缺口，不把普通操作统一禁用。
+
+### 已有会话与附件
+
+- `open-page {"page":"chat"}` 在当前任务标签进入聊天；也支持 `jobs`、`resume`，不接受任意 URL。导航后重新 inspect 核对账号。回到职位页用 `restore-filters {}` 恢复原查询，逐项读回平台条件；候选、已发送和未知记录保留。
+- `inspect-chat {}` 只读当前自然加载会话与当前对话。`open-conversation {"recipient":{"name":"…","company":"…"}}` 只打开当前列表中唯一匹配项，再观察确认顶部身份。`chat-job-detail` 使用同样 recipient 打开当前职位入口，点击成功不代表详情加载完成。
+- `prepare-chat-send {"request":{…}}` 使用 store 原有授权请求，kind 为 reply 或 share_resume，必须绑定当前最新 inboundId、账号、公司与对话。targetKey 使用既有匹配 thread 或 `boss:chat:` 加 recipient 的 sorted JSON UTF-8 SHA256 前24位。禁止用别名重发同一 inbound；reply 与 share_resume 分别去重。
+- `send-chat {"actionId":"…"}` 填写并核对普通回复后点击唯一可见发送按钮。附件先打开原生确认框；`confirm-resume` 核对同一收件人后点击确认。`reconcile-chat` 只读核对新消息 ID、方向和文本，点击成功不计送达。已尝试发送只能核对，不能再次 send-chat。
+- 分享平台附件前，`open-page {"page":"resume"}`、`inspect-resume {}` 核对账号及唯一附件完整文件名与授权文件一致；再回到聊天。当前版本仅适配平台已有单份附件，不上传或替换文件。平台页面文件名证据不是平台文件字节 hash，报告不得混淆；本地文件仍按 policy hash 检查。
+- BOSS 显示“正在请求中，等待对方回复”时记 pending / awaiting-recipient-consent，不能计作附件已送达。真正附件成功需要新的“您的附件简历…已发送给Boss”系统回执。没有这种回执继续保留 pending；不通过再次点击来测试。
+- 招聘方系统附件请求中的“同意”控件尚未在本次现场验证，不能据此宣称该路径已测试通过。
+
+恢复与验证补充（2026-09-20）：
+
+- `inspect-session {}` 读取本 Kimi session 的真实标签清单；`select-page {"page":"jobs|chat|resume"}` 使用清单中唯一匹配页面的完整 URL，并核对返回路径。Kimi 2.0.9 实测仍可能返回同站点错误页，入口会拒绝；观察确认后可用 `open-page` 正常导航到所需站内页面。不能把错页当成定位失败后继续点击。`screenshot {}` 返回 Kimi 截图路径。
+- 聊天 `chat-job-detail` 使用 Kimi 指针点击唯一“查看职位”，随后 `inspect-session` 确认实际打开的详情标签；`select-page {"page":"detail","key":"boss:职位ID"}` 只选择该 session 清单内已有的唯一详情页，不发起详情导航。对 Kimi 标为 borrowed 的标签，仅在清单证明它当前 active 时使用 active 选择，并再次核对返回 URL。
+- `restore-filters` 后，原未完成候选仍在列表时恢复原批次 ID；列表变化时保留 `retainedBatches` 和 `backlog`。`revisit-candidate {"key":"boss:…","evidence":"复审原因"}` 可将已自然加载且可见的 deferred 或遗留未完成候选重新加入当前批次，必须重新 screen、打开详情和 review，成功/unknown 不得复审重发。
+- 菜单选项在两次调用之间收起时，只对上一观察确实存在的选项重新展开同一菜单一次；仍找不到则保留具体失败。`focus-page` 和一次菜单成功均不能证明后台切换问题永久解决。
+- `focus-page` 通过 Kimi CDP 临时启用当前页的 focus emulation 后再 bringToFront，保持任务操作期间页面活跃；这不是修改浏览器启动配置。菜单、详情、滚动遇到 hidden 时使用该恢复。切换/导航入口自动 `release-focus`，收尾释放锁前也执行 `release-focus`。本次在持续 hidden 和无新 ID 后启用，随后自然加载 4 个新 ID；这是本次有效证据，不承诺所有环境均稳定。
+- `prepare-chat-send` 的 share_resume 支持 `resumeMode: "accept-request"`：inboundId 为当前消息中明确索要附件简历且含唯一“同意”的系统请求 ID。仍绑定最新普通来信、附件版本和收件人；不能用它同意电话或微信请求。真实页面已验证请求识别，点击仅有离线 DOM 验证，尚未线上验收。
+- 附件确认按普通发送和平台额外简历确认分别登记尝试，同一确认阶段不会重复点击。跨收件人残留确认框不能用于新动作；`dismiss-resume` 可取消当前收件人下的普通简历确认框。等待状态以新“附件简历请求已发送”回执或工具条等待提示为依据，后续工具条变化不把已知等待降为 unknown。只有明确附件发送系统回执才变为 attachment-delivered。
+- 发送前重新检查别名接管、新来信、新增我方消息、编辑器及平台附件核验记录；准备后发现无法归属的新我方消息仅暂停该动作复核。附件页核验仍是完整文件名与本地授权版本绑定，不是平台文件字节一致性证明。
+
+`focus-page {}` 经 Kimi 将当前标签带到前台。悬停返回 menuOpened，只有观察到对应菜单选项才为 true。标签在后台时先尝试前台恢复；菜单收起则重新观察，不能用旧坐标点击其它菜单。Kimi find_tab 的返回 URL 也必须核对，同站点错误标签不视为切换成功。
 
 当前结构化查询校验覆盖 city、keyword、experience、已配置的 salary 及账号显示名；policy 中其他硬条件仍须根据当前可见平台筛选设置并保存证据，脚本不自动理解任意策略文本。`search.salaryFilter` 启用时，`salary` 必须是其允许的 Boss 标签，并在页面读回中完全匹配；薪资标签是搜索范围，不代替对职位薪资口径的详情判断。`accountLabel` 来自页面显示名，与 session 一起提供当前身份线索；当前适配器没有验证稳定唯一账号 ID，不能把同名视为同一账号，也不能用它证明线上资料版本一致。列表粗筛和 JD 判断分别记录。`eligibilityPassed` 依据完整JD、当前用户允许的投递范围与身份/职责判断，不把已允许年限的个人工龄差异重新当成否决条件。脚本不替 Agent 判断自然语言要求。平台只支持单选且用户没有固定 selectedLabels 时可在 allowedLabels 内分次搜索；固定集合无法在平台表达时记录具体差异，不擅自删项。
 
@@ -207,6 +248,6 @@ doctor 仅检查本地结构、Python、配置、锁与待核对数量，不输�
 
 ## BOSS 默认招呼的提交范围
 
-0.4.0 的 `browser_actions.py submit` 仅支持 `contentMode: "platform-default"`。请求必须按 store 的规则记录平台默认发送方式与明确授权；未知的默认正文保持 `content: null`，不能编造。该入口没有自定义招呼编辑器适配，`text` 模式或省略模式会在浏览器调用前拒绝。普通回复和附件同样不在当前网页适配范围内。
+`browser_actions.py submit` 仅支持 `contentMode: "platform-default"` 的新岗位原生招呼。未知正文保持 `content: null`。已有会话的自定义回复与平台简历分享使用上面的聊天入口，不受此招呼模式限制。
 
 回执核对使用原动作、账号上下文、岗位身份和提交前页面证据。平台默认招呼在发送后观察到的正文另存为 `observedContent`。历史 `text` 动作不能靠页面全文中出现相同文字就确认发送；当前适配缺少文本气泡级核验时保留 unknown，等有匹配回执再处理，不能重发。

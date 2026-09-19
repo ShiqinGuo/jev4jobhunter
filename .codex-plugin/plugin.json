@@ -1,7 +1,7 @@
 {
   "name": "job-hunter",
-  "version": "0.4.1+codex.20260916113842",
-  "description": "\u4e2a\u4eba\u6c42\u804c\u52a9\u624b\uff1a\u53d1\u73b0\u548c\u6bd4\u8f83\u804c\u4f4d\u3001\u6267\u884c\u5df2\u6388\u6743\u6c9f\u901a\u5e76\u8ffd\u8e2a\u8fdb\u5ea6\uff1b\u7f51\u9875\u64cd\u4f5c\u56fa\u5b9a\u4f7f\u7528 Kimi WebBridge\uff0c\u538b\u7f29\u540e\u91cd\u65b0\u8bfb\u53d6\u901a\u9053\u4e0e\u65ad\u70b9\uff0c\u4e0d\u81ea\u52a8\u6539\u7528\u81ea\u5e26\u6d4f\u89c8\u5668\u3002",
+  "version": "0.5.0",
+  "description": "个人求职助手：发现和比较职位、执行已授权沟通并追踪进度；网页操作固定使用 Kimi WebBridge，压缩后重新读取通道与断点，不自动改用自带浏览器。",
   "author": {
     "name": "shaneguo"
   },
@@ -14,9 +14,9 @@
   ],
   "skills": "./skills/",
   "interface": {
-    "displayName": "Job Hunter \u6c42\u804c\u52a9\u624b",
-    "shortDescription": "\u8de8\u5e73\u53f0\u627e\u5c97\u4f4d\u3001\u51c6\u5907\u6295\u9012\u3001\u5904\u7406\u6d88\u606f\u4e0e\u8ddf\u8e2a\u8fdb\u5ea6",
-    "longDescription": "\u4e2a\u4eba\u6c42\u804c\u52a9\u624b\uff1a\u53d1\u73b0\u548c\u6bd4\u8f83\u804c\u4f4d\u3001\u6267\u884c\u5df2\u6388\u6743\u6c9f\u901a\u5e76\u8ffd\u8e2a\u8fdb\u5ea6\uff1b\u7f51\u9875\u64cd\u4f5c\u56fa\u5b9a\u4f7f\u7528 Kimi WebBridge\uff0c\u538b\u7f29\u540e\u91cd\u65b0\u8bfb\u53d6\u901a\u9053\u4e0e\u65ad\u70b9\uff0c\u4e0d\u81ea\u52a8\u6539\u7528\u81ea\u5e26\u6d4f\u89c8\u5668\u3002 \u6838\u5fc3 Skill \u53ef\u72ec\u7acb\u5206\u53d1\uff1b\u672a\u9002\u914d\u7f51\u9875\u52a8\u4f5c\u4fdd\u7559\u6750\u6599\u548c\u5177\u4f53\u7f3a\u53e3\u3002",
+    "displayName": "Job Hunter 求职助手",
+    "shortDescription": "跨平台找岗位、准备投递、处理消息与跟踪进度",
+    "longDescription": "个人求职助手：发现和比较职位、执行已授权沟通并追踪进度；网页操作固定使用 Kimi WebBridge，压缩后重新读取通道与断点，不自动改用自带浏览器。 核心 Skill 可独立分发；未适配网页动作保留材料和具体缺口。",
     "developerName": "shaneguo",
     "category": "Productivity",
     "capabilities": [
@@ -25,9 +25,9 @@
       "Write"
     ],
     "defaultPrompt": [
-      "\u6839\u636e\u6211\u7684\u7b80\u5386\u548c\u6c42\u804c\u6761\u4ef6\uff0c\u5148\u627e 5 \u4e2a\u5408\u9002\u5c97\u4f4d\u5e76\u8bf4\u660e\u7406\u7531\u3002",
-      "\u6574\u7406\u62db\u8058\u65b9\u7684\u65b0\u6d88\u606f\uff0c\u51c6\u5907\u6709\u4f9d\u636e\u7684\u56de\u590d\u8349\u7a3f\u3002",
-      "\u67e5\u770b\u6c42\u804c\u8fdb\u5ea6\u548c\u4ecd\u9700\u5904\u7406\u7684\u7533\u8bf7\u3001\u9762\u8bd5\u4e0e\u672a\u77e5\u7ed3\u679c\u3002"
+      "根据我的简历和求职条件，先找 5 个合适岗位并说明理由。",
+      "整理招聘方的新消息，准备有依据的回复草稿。",
+      "查看求职进度和仍需处理的申请、面试与未知结果。"
     ]
   }
 }

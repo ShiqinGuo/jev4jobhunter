@@ -10,6 +10,8 @@ Job Hunter is a job-search plugin for **Codex**, **Claude Code** and compatible 
 
 [Static image](docs/media/demo-poster.en.png)
 
+Version 0.5.0 adds bounded conversation/detail waits, execution of reviewed replies, and local per-operation measurements. See [validation scope](VALIDATION.md) for measured results and unverified paths.
+
 ## Installation
 
 Use Python 3.10+ and a host that supports plugins or Skills. The host supplies the model; the plugin does not require a separate model API key.
@@ -57,7 +59,8 @@ Personal facts (`profile.md`), strategy and authorization (`policy.json`), and p
 |---|---|
 | BOSS 直聘 / BOSS Zhipin | Filters, visible lists, individual details and platform-default greetings through the guarded entry |
 | Other job sites | Analyze supplied material; site-by-site browser execution is not yet adapted and verified |
-| Custom greetings, normal replies, attachments | Preparation is supported; sending is not wired into the current browser entry |
+| Normal replies and platform resume sharing | Wired into the entry; live replies and share requests verified. Final attachment delivery still requires an explicit receipt after recipient consent |
+| Custom first greetings | Drafting supported; new conversations use the platform-default greeting |
 | Scheduled runs | Depend on the host scheduler, computer and browser availability |
 
 Real-site validation includes a single authorized greeting and delayed receipt reconciliation. See [validation evidence](VALIDATION.md) and [browser rules](skills/job-hunter/references/browsing-safety.md).

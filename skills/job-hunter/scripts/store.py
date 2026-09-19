@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
+from copy import deepcopy
+from functools import lru_cache
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -209,13 +211,20 @@ def validate_policy(policy: dict) -> None:
     validate_rules(policy)
 
 
+@lru_cache(maxsize=8)
+def _validated_policy_bytes(raw: bytes) -> dict:
+    policy=json.loads(raw.decode('utf-8-sig'))
+    validate_policy(policy)
+    return policy
+
+
 def load_policy(root: Path) -> dict:
     path = root / "policy.json"
     if not path.exists():
         raise StoreError("policy-missing:review-policy.example.json-or-migrate-policy.md")
-    policy = read_json(path)
-    validate_policy(policy)
-    return policy
+    # Read current bytes every time: same-size/mtime edits must invalidate review.
+    # Cache parsing/validation only; callers never receive the shared cache object.
+    return deepcopy(_validated_policy_bytes(path.read_bytes()))
 
 
 def initialize(root: Path) -> dict:

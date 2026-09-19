@@ -10,6 +10,8 @@ Kimi session 是 Kimi daemon 的会话标识，不是 `cua.getTab` 的标签 ID�
 
 复用本任务的 Kimi session，交接记录通道、session、账号归属和当前待核对动作。缺少 session 时仅通过 Kimi 正常会话接口找回本任务归属；不猜 ID，不接管其他任务。Kimi 不可用时保存断点、记录原因，继续本地工作；不自动重启正在工作的 daemon，也不探测备用浏览器。已提交但结果未知的动作只核对，不重发。
 
+用 `inspect-session` 查看当前 session 的真实 URL、active 与 borrowed；`select-page` 从这份清单选唯一页面并核对实际返回 URL。2.0.9 实测 find_tab 即使收到完整 URL 仍可能返回同站点另一页，因此不能只检查 success。错页后按正式 `open-page` 进行普通站内恢复；保留原搜索批次。页面内真实点击打开的 borrowed 详情，仅在本 session 清单确认该详情 active 时按 active 选择，不借用其它用户标签。focus-page 返回的 visible 只证明当次观察，后续仍需检查。
+
 通道说明允许 Python HTTP 传输时，入口内部使用 UTF-8 字节传输，不经 shell 拼接中文、不自动重试。不用裸 curl、循环 evaluate、CDP 或招聘平台私有接口绕过单步入口；登录等未适配动作保留材料和缺口。验证码等秘密输入只走当前工具允许的内存传递方式，不落入请求文件。不读取浏览器凭据或复制 cookie。
 
 ## 标签已关闭或当前页面丢失
