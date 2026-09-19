@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="640" viewBox="0 0 1120 640" role="img" aria-labelledby="title desc">
+<title id="title">Job Hunter / 技术架构</title><desc id="desc">The Agent reasons; the local runtime records and guards each browser step. Host supplies the model and scheduling. Unknown outcomes are reconciled before another send.</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0 0L8 4L0 8Z" fill="#C16A36"/></marker></defs>
+<rect width="1120" height="640" rx="24" fill="#FAF7F2"/>
+<g font-family="Microsoft YaHei,Noto Sans CJK SC,Arial,sans-serif">
+<text x="40" y="56" fill="#293B53" font-size="29" font-weight="600">Job Hunter / 技术架构</text>
+<text x="40" y="90" fill="#7D8794" font-size="17" font-weight="400">Agent 负责理解与判断，本地运行时检查并记录每一步浏览器操作。</text>
+<polyline points="320,216 407,216" fill="none" stroke="#C16A36" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="345" y="204" fill="#7D8794" font-size="14" font-weight="400">单步调用</text>
+<polyline points="717,216 805,216" fill="none" stroke="#C16A36" stroke-width="2" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+<text x="725" y="204" fill="#7D8794" font-size="14" font-weight="400">命令</text>
+<polyline points="180,405 180,306" fill="none" stroke="#C16A36" stroke-width="2" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+<text x="193" y="366" fill="#7D8794" font-size="14" font-weight="400">上下文</text>
+<polyline points="562,306 562,405" fill="none" stroke="#C16A36" stroke-width="2" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+<text x="578" y="366" fill="#7D8794" font-size="14" font-weight="400">读取 / 保存</text>
+<polyline points="940,306 940,405" fill="none" stroke="#C16A36" stroke-width="2" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+<text x="785" y="366" fill="#7D8794" font-size="14" font-weight="400">页面 / 操作 / 回执</text>
+<rect x="40" y="155" width="280" height="156" rx="16" fill="#E5DDD4"/>
+<rect x="40" y="150" width="280" height="156" rx="16" fill="#fff" stroke="#E5DDD4"/>
+<rect x="57" y="169" width="4" height="22" rx="2" fill="#C16A36"/>
+<text x="71" y="187" fill="#293B53" font-size="21" font-weight="600">Agent 与 Skill</text>
+<text x="60" y="222" fill="#7D8794" font-size="16" font-weight="400">Codex / Claude Code</text>
+<text x="60" y="248" fill="#7D8794" font-size="16" font-weight="400">信息补充、岗位匹配与判断</text>
+<text x="60" y="274" fill="#7D8794" font-size="16" font-weight="400">skills/job-hunter/SKILL.md</text>
+<rect x="407" y="155" width="310" height="156" rx="16" fill="#E5DDD4"/>
+<rect x="407" y="150" width="310" height="156" rx="16" fill="#fff" stroke="#E5DDD4"/>
+<rect x="424" y="169" width="4" height="22" rx="2" fill="#C16A36"/>
+<text x="438" y="187" fill="#293B53" font-size="21" font-weight="600">Python 执行入口</text>
+<text x="427" y="222" fill="#7D8794" font-size="16" font-weight="400">browser_actions.py</text>
+<text x="427" y="248" fill="#7D8794" font-size="16" font-weight="400">browsing_safety.py / policy_rules.py</text>
+<text x="427" y="274" fill="#7D8794" font-size="16" font-weight="400">boss_page.py：页面适配</text>
+<rect x="805" y="155" width="275" height="156" rx="16" fill="#E5DDD4"/>
+<rect x="805" y="150" width="275" height="156" rx="16" fill="#fff" stroke="#E5DDD4"/>
+<rect x="822" y="169" width="4" height="22" rx="2" fill="#C16A36"/>
+<text x="836" y="187" fill="#293B53" font-size="21" font-weight="600">Kimi WebBridge</text>
+<text x="825" y="222" fill="#7D8794" font-size="16" font-weight="400">webbridge_client.py</text>
+<text x="825" y="248" fill="#7D8794" font-size="16" font-weight="400">本机 daemon 与浏览器扩展</text>
+<text x="825" y="274" fill="#7D8794" font-size="16" font-weight="400">已有浏览器会话</text>
+<rect x="40" y="410" width="280" height="130" rx="16" fill="#E5DDD4"/>
+<rect x="40" y="405" width="280" height="130" rx="16" fill="#fff" stroke="#E5DDD4"/>
+<rect x="57" y="424" width="4" height="22" rx="2" fill="#C16A36"/>
+<text x="71" y="442" fill="#293B53" font-size="21" font-weight="600">个人信息与策略</text>
+<text x="60" y="477" fill="#7D8794" font-size="16" font-weight="400">profile.md：用户提供的事实</text>
+<text x="60" y="503" fill="#7D8794" font-size="16" font-weight="400">policy.json：策略与授权</text>
+<rect x="407" y="410" width="310" height="130" rx="16" fill="#E5DDD4"/>
+<rect x="407" y="405" width="310" height="130" rx="16" fill="#fff" stroke="#E5DDD4"/>
+<rect x="424" y="424" width="4" height="22" rx="2" fill="#C16A36"/>
+<text x="438" y="442" fill="#293B53" font-size="21" font-weight="600">本地持久化状态</text>
+<text x="427" y="477" fill="#7D8794" font-size="16" font-weight="400">store.py / state.json</text>
+<text x="427" y="503" fill="#7D8794" font-size="16" font-weight="400">进度、防重记录与回执</text>
+<rect x="805" y="410" width="275" height="130" rx="16" fill="#E5DDD4"/>
+<rect x="805" y="405" width="275" height="130" rx="16" fill="#fff" stroke="#E5DDD4"/>
+<rect x="822" y="424" width="4" height="22" rx="2" fill="#C16A36"/>
+<text x="836" y="442" fill="#293B53" font-size="21" font-weight="600">BOSS 招聘网站</text>
+<text x="825" y="477" fill="#7D8794" font-size="16" font-weight="400">逐项阅读岗位</text>
+<text x="825" y="503" fill="#7D8794" font-size="16" font-weight="400">默认招呼与平台回执</text>
+<text x="40" y="610" fill="#7D8794" font-size="15" font-weight="400">模型与调度由宿主提供；结果不明的动作先核对，再继续。</text>
+</g></svg>

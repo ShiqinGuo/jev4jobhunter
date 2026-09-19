@@ -11,6 +11,21 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 W, H, SCALE, FPS = 1120, 640, 2, 12
 
 
+LANGUAGE = "en"
+TRANSLATIONS = {}
+
+
+def configure_language(language, translations):
+    global LANGUAGE, TRANSLATIONS
+    LANGUAGE = language
+    TRANSLATIONS = translations if language == "zh-CN" else {}
+    font.cache_clear()
+
+
+def translate(value):
+    return TRANSLATIONS.get(value, value)
+
+
 @lru_cache(None)
 def font(size, bold=False):
     override = os.environ.get("SHOWCASE_FONT_BOLD" if bold else "SHOWCASE_FONT")
@@ -24,6 +39,15 @@ def font(size, bold=False):
         if bold
         else "/System/Library/Fonts/Supplemental/Arial.ttf",
     ]
+    if LANGUAGE == "zh-CN":
+        candidates = [
+            override,
+            "C:/Windows/Fonts/msyhbd.ttc" if bold else "C:/Windows/Fonts/msyh.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
+            if bold
+            else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/System/Library/Fonts/PingFang.ttc",
+        ]
     for path in candidates:
         if path and Path(path).is_file():
             return ImageFont.truetype(path, int(size * SCALE))
@@ -76,7 +100,7 @@ class Canvas:
     def text(self, x, y, value, size=18, color=None, bold=False):
         self.d.text(
             (int(x * SCALE), int(y * SCALE)),
-            value,
+            translate(value),
             font=font(size, bold),
             fill=color or self.ink,
         )
@@ -108,6 +132,7 @@ class Canvas:
         self.rect((x, y, x + w, y + h), fill, 18, edge or self.edge)
 
     def pill(self, x, y, value, active=False, size=15):
+        value = translate(value)
         w = self.d.textlength(value, font=font(size)) / SCALE + 24
         self.rect((x, y, x + w, y + 30), self.soft if active else self.bg, 10)
         self.text(x + 12, y + 4, value, size, self.accent if active else self.muted)
@@ -147,7 +172,7 @@ class Canvas:
 
     def chrome(self, name, headline, number, caption, t):
         self.text(42, 25, name, 18, bold=True)
-        self.pill(865, 23, "Illustrated workflow", size=14)
+        self.pill(865, 23, "Workflow", size=14)
         self.text(42, 67, headline, 32, bold=True)
         self.text(44, 554, f"0{number}", 17, self.accent, True)
         self.text(84, 552, caption, 20, self.ink)
@@ -158,7 +183,7 @@ class Canvas:
         return self.im.resize((W, H), Image.Resampling.LANCZOS)
 
 
-def render(scene, out):
+def render(scene, out, language):
     """A 24s loop plus a brief final hold; global palette avoids palette shimmer."""
     out = Path(out)
     atlas = Image.new("RGB", (W * 3, H * 2))
@@ -181,7 +206,7 @@ def render(scene, out):
         durations.append(90 if i % 3 == 0 else 80)
     durations[-1] = 1300
     frames[0].save(
-        out / "demo.gif",
+        out / f"demo.{language}.gif",
         save_all=True,
         append_images=frames[1:],
         duration=durations,
@@ -189,12 +214,14 @@ def render(scene, out):
         optimize=True,
         disposal=1,
     )
-    scene(14.5).save(out / "demo-poster.png")
+    scene(14.5).save(out / f"demo-poster.{language}.png")
     # Review artifact stays outside the public repository when requested.
     review = os.environ.get("SHOWCASE_REVIEW")
     if review:
-        atlas.resize((1680, 640)).save(review)
-    with Image.open(out / "demo.gif") as im:
+        atlas.resize((1680, 640)).save(
+            Path(review).with_name(f"{Path(review).stem}.{language}.png")
+        )
+    with Image.open(out / f"demo.{language}.gif") as im:
         print(
-            f"{out.name}: {im.size}, {im.n_frames} frames, {(out / 'demo.gif').stat().st_size} bytes"
+            f"{out.name}: {im.size}, {im.n_frames} frames, {(out / f'demo.{language}.gif').stat().st_size} bytes"
         )

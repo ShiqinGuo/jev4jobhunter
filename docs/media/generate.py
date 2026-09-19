@@ -1,9 +1,11 @@
 """Job Hunter: personal conditions change the destination of each opportunity."""
 
+import argparse
+import json
 import math
 from pathlib import Path
 
-from motion import Canvas, ease, lerp, render, spring
+from motion import Canvas, configure_language, ease, lerp, render, spring
 
 
 def canvas():
@@ -192,4 +194,12 @@ def scene(t):
 
 
 if __name__ == "__main__":
-    render(scene, Path(__file__).parent)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--language", choices=["zh-CN", "en", "both"], default="both")
+    args = parser.parse_args()
+    out = Path(__file__).parent
+    translations = json.loads((out / "zh-CN.json").read_text(encoding="utf-8"))
+    languages = ["zh-CN", "en"] if args.language == "both" else [args.language]
+    for language in languages:
+        configure_language(language, translations)
+        render(scene, out, language)

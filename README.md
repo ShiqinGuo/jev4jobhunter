@@ -9,17 +9,16 @@
 
 **Job Hunter** 是面向个人求职的 Agent 插件，也可作为独立 Skill 使用。你提供简历和目标，Agent 帮你补齐影响筛选的信息、阅读岗位、解释匹配理由，并按明确授权推进沟通。个人资料和执行记录保存在本地目录。
 
-![Job Hunter 功能动画：个人条件连接岗位要求，保留未知项，按授权沟通并核验回执、保存记录](docs/media/demo.gif)
+![Job Hunter 功能动画：个人条件连接岗位要求，保留未知项，按授权沟通并核验回执、保存记录](docs/media/demo.zh-CN.gif)
 
-*程序绘制的功能演绎，使用虚构资料；不是产品界面录屏。动效展示「条件 → 匹配依据 → 授权沟通 → 回执与历史」。[查看静态图](docs/media/demo-poster.png)*
+[静态图](docs/media/demo-poster.zh-CN.png)
 
 **开始使用：** [Codex / Claude Code 安装](#快速开始) · [下载插件](https://github.com/ShiqinGuo/job-hunter/releases/latest) · [真实验证范围](VALIDATION.md)
 
 支持 **Codex、Claude Code 和兼容 Skill 的宿主**。当前网页执行适配 **BOSS 直聘**，使用 **Kimi Browser Extension / Kimi WebBridge**；其他网站可先分析用户提供的材料，具体支持范围见下文。
 
-English: an AI job-search assistant for resume-based job matching, authorized BOSS outreach, application tracking and resumable progress. [Read the English guide](README.en.md).
-
 ## 快速开始
+
 需要支持 Skill 的 Agent 宿主和 **Python 3.10+**。核心 Python 脚本仅使用标准库；执行网页操作还需要当前入口支持的浏览器通道。无需为插件单独配置模型 API Key，模型由宿主提供。
 
 ### 1. 安装到 Agent 宿主
@@ -54,9 +53,6 @@ claude plugin install job-hunter@job-hunter
 
 安装 Job Hunter 插件不会同时安装这些浏览器组件。暂未准备浏览器时，可以先提供简历和岗位描述做本地匹配分析。
 
-网页操作固定通过 **Kimi Browser Extension / Kimi WebBridge**，需安装对应技能与本机 daemon，并在该浏览器正常登录。会话压缩、新轮次或中断后，先执行本地 `resume-context` 并重读通道规则；不自动改用 Codex 自带浏览器、CUA 或 computer-use。Kimi 不可用时保存断点，仍可完成本地分析与草稿。
-
-
 ### 3. 开始第一个任务
 
 安装或升级后在新对话加载。首次可以这样说：
@@ -68,6 +64,7 @@ claude plugin install job-hunter@job-hunter
 > 对这些已筛选通过的岗位，使用平台当前招呼语发起沟通，逐项核验结果。
 
 ## 核心能力
+
 | 能力 | 能帮你做什么 |
 |---|---|
 | 求职信息引导 | 从已有简历提取事实，只补问会改变筛选或回复的信息；回答保存后复用 |
@@ -80,6 +77,7 @@ claude plugin install job-hunter@job-hunter
 | 定时与日报 | 由宿主触发任务，插件记录轮次与交付，支持发现漏跑和补报 |
 
 ## 使用流程
+
 ```mermaid
 flowchart LR
     A[简历与求职条件] --> B[补齐关键缺项]
@@ -94,36 +92,32 @@ flowchart LR
     I --> D
 ```
 
-当前自然加载的列表处理完，才滚动一次获取新增岗位。数量目标不改变这个顺序，也不授权批量预取详情。
+处理完当前列表，再继续查看新增岗位。
 
 ## 技术架构
-![Job Hunter 技术架构：Agent 与 Skill 调用本地受约束的 Python 入口，通过 Kimi WebBridge 操作 BOSS；个人条件与执行状态保存在本地](docs/media/architecture.svg)
 
-宿主 Agent 提供模型和推理，Skill 组织信息补充与匹配。网页步骤经过 `browser_actions.py`、`browsing_safety.py` 和策略检查，再通过 `webbridge_client.py` 调用 Kimi；`boss_page.py` 负责页面观察与适配。`store.py` 保存进度、防重与回执。这个入口约束经过它的操作，不是隔离其他脚本的浏览器沙箱。
+![Job Hunter 技术架构：Agent 与 Skill 调用本地受约束的 Python 入口，通过 Kimi WebBridge 操作 BOSS；个人条件与执行状态保存在本地](docs/media/architecture.zh-CN.svg)
+
+宿主 Agent 提供模型和推理，Skill 组织信息补充与匹配。网页步骤经过 `browser_actions.py`、`browsing_safety.py` 和策略检查，再通过 `webbridge_client.py` 调用 Kimi；`boss_page.py` 负责页面观察与适配。`store.py` 保存进度、防重与回执。
 
 资料、策略和状态留在本地目录；定时触发由宿主提供。[运行说明](skills/job-hunter/references/runtime.md) · [素材与生成方式](docs/media/README.md)
 
 ## 当前支持范围
+
 | 场景 | 0.4.1 状态 |
 |---|---|
 | BOSS 平台筛选、列表、单个详情、默认招呼 | 已接入统一入口；已有一次真实沟通回执验证 |
-| BOSS 自定义招呼、普通回复、附件发送 | 可以准备材料；网页发送尚未接入当前入口，不自动改走裸调用 |
+| BOSS 自定义招呼、普通回复、附件发送 | 可以准备材料；网页发送尚未接入当前入口 |
 | 其他招聘网站 / 公司招聘页 | 可分析用户提供的材料；逐站网页操作尚未适配、验收 |
 | 本地策略、授权、防重、恢复与报告 | 已有自动化测试；各项验证口径见验证记录 |
 | 定时执行 | 依赖宿主实际调度能力、电脑和浏览器状态 |
 
-这版收紧了网页执行入口：旧版本中依赖临时浏览器脚本的操作，不代表已接入新版。**升级前结束当前运行，保留个人数据，在新对话重新加载。**
+升级时结束当前运行，保留个人数据，在新对话重新加载。
 
-## 浏览与发送规则
-- 先用平台可见筛选器缩小范围，不靠不断扩大详情读取追求数量。
-- 当前列表先粗筛与去重；一个详情完成判断及必要回执核验后，再处理下一项。
-- 资料或策略变化会使旧审核失效；成功和未知发送记录继续防重。
-- 访问异常与沟通配额分别记录。适用的访问限制会阻止新导航、滚动、刷新和外发；后续轮次先读本地恢复条件。
-- 单步入口约束经过它的操作，不是浏览器沙箱；不能拦截另一个外部脚本。固定或随机延时均不能证明不会触发限制。
-
-详见 [页面浏览策略](skills/job-hunter/references/browsing-safety.md)。真实验证范围包括一次授权的新沟通及迟到回执核对，不包含 50/150 次连续投递、普通回复或附件发送；不作免封控承诺。
+浏览策略与恢复细节见 [页面浏览策略](skills/job-hunter/references/browsing-safety.md)；测试和实际网站记录见 [验证记录](VALIDATION.md)。
 
 ## 个人数据与恢复
+
 每个求职方案使用独立目录，按明确的 `--data-dir` → `JOB_HUNTER_HOME` → `~/.job-hunter` 解析。同一账号共享联系历史；独立账号的上下文与适用限制须明确归属。
 
 | 文件 | 内容 |
@@ -136,6 +130,7 @@ flowchart LR
 发布包不包含个人简历、账号配置、聊天或投递记录。核心状态格式保持 v2，升级保留历史；现有未完成动作先核对，再恢复浏览。
 
 ## 文档导航
+
 | 文档 | 内容 |
 |---|---|
 | [信息补充引导](skills/job-hunter/references/intake.md) | 如何从模糊目标形成可执行的筛选条件 |
@@ -147,6 +142,7 @@ flowchart LR
 | [维护方向](ROADMAP.md) | 后续适配与验证工作 |
 
 ## 最近更新
+
 | 版本 | 日期 | 主要变化 |
 |---|---|---|
 | **0.4.1** | 2026-09-16 | 固定 Kimi 通道、压缩后恢复与查询约束 |

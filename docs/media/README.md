@@ -1,18 +1,20 @@
-# Showcase assets
+# 展示素材
 
-`demo.gif` is a program-drawn, 24-second feature illustration with synthetic data, not a screen recording or a new product UI. `demo-poster.png` is the static alternative. `architecture.svg` is the editable technical diagram.
+动画、静态图和架构图分别提供 `zh-CN` 与 `en` 两个版本。中文首页加载中文素材，英文 README 加载英文素材。
 
-## Rebuild
+动画为程序绘制，场景使用示例资料。`generate.py` 定义项目场景，`motion.py` 负责绘制与动效，`zh-CN.json` 保存中文文案。架构图是可直接编辑的 SVG。
 
-From the repository root, using a separate Python environment:
+## 重新生成
+
+在独立 Python 环境中，从仓库根目录执行：
 
 ```sh
 python -m pip install -r docs/media/requirements.txt
 python docs/media/generate.py
 ```
 
-`generate.py` owns the project-specific scenes; `motion.py` draws the shallow physical cards, spring motion, and signal paths. Pillow is an asset-authoring dependency only, not a product runtime dependency. Fonts are discovered on Windows, Linux and macOS; use `SHOWCASE_FONT` and `SHOWCASE_FONT_BOLD` to select alternate local TrueType fonts. Font files are not redistributed.
+默认生成两种语言；只生成一种时添加 `--language zh-CN` 或 `--language en`。
 
-Output: 1120 × 640 GIF, 12 fps, one global palette, a final reading hold, and a static PNG. Set `SHOWCASE_REVIEW` to an output PNG path for a six-frame review sheet. The SVG can be edited directly without a build tool.
+Pillow 仅用于制作素材。中文字体按系统选择微软雅黑、Noto Sans CJK 或苹方，也可通过 `SHOWCASE_FONT` 与 `SHOWCASE_FONT_BOLD` 指定本机字体文件；字体不随仓库分发。
 
-Animation and architecture are illustrative. Current behavior and verification boundaries remain defined by the source, README and linked validation records.
+输出为 1120 × 640 GIF（12 fps）与静态 PNG。设置 `SHOWCASE_REVIEW` 可额外输出六帧检查图。
