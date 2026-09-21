@@ -87,7 +87,7 @@ python scripts/browser_actions.py --data-dir ./demo-data --token TOKEN --platfor
 |---|---|
 | `start-query` | 保存本轮 city、keyword、experience、可选 salary、accountLabel 意图及当前资料 / 策略指纹；旧批次收尾后，配置变化会归档旧浏览决定并重新筛选 |
 | `select-account-context` | 纯本地记录用户明确区分的账号上下文，核对当前正常页面与显示名；归属旧限制、归档旧浏览上下文并保留全部 outbox，不修改 policy/profile |
-| `control` | 使用当前快照中的搜索 / 筛选控件 ID 与 value，配置期间单步操作；悬停菜单可指定 `interaction: "hover"`，仅移动到当前可见菜单中心，之后重新观察选项 |
+| `control` | 使用当前快照中的搜索 / 筛选控件 ID 与 value，配置期间单步操作；控件用 `interaction` 声明展开方式，标为 `click` 的必须点击展开，无该字段的悬停菜单指定 `interaction: "hover"`，仅移动到当前可见菜单中心，之后重新观察选项 |
 | `capture-list` | 验证实际账号及页面选中条件，固定当前自然加载的新卡片批次 |
 | `screen` | 一个 key、shortlisted / skipped / deferred 决定与 evidence；依据当前列表粗筛 |
 | `open-detail` | 一个已经 shortlisted 的 key，且没有其他活动详情 |
@@ -123,7 +123,7 @@ python scripts/browser_actions.py --data-dir ./demo-data --token TOKEN --platfor
 - 附件确认按普通发送和平台额外简历确认分别登记尝试，同一确认阶段不会重复点击。跨收件人残留确认框不能用于新动作；`dismiss-resume` 可取消当前收件人下的普通简历确认框。等待状态以新“附件简历请求已发送”回执或工具条等待提示为依据，后续工具条变化不把已知等待降为 unknown。只有明确附件发送系统回执才变为 attachment-delivered。
 - 发送前重新检查别名接管、新来信、新增我方消息、编辑器及平台附件核验记录；准备后发现无法归属的新我方消息仅暂停该动作复核。附件页核验仍是完整文件名与本地授权版本绑定，不是平台文件字节一致性证明。
 
-`focus-page {}` 经 Kimi 将当前标签带到前台。悬停返回 menuOpened，只有观察到对应菜单选项才为 true。标签在后台时先尝试前台恢复；菜单收起则重新观察，不能用旧坐标点击其它菜单。Kimi find_tab 的返回 URL 也必须核对，同站点错误标签不视为切换成功。
+`focus-page {}` 经 Kimi 将当前标签带到前台。悬停返回 menuOpened，只有观察到对应菜单选项才为 true；为 false 时结果附带 `nextAction`，提示重新观察并再展开同一菜单一次，不再静默返回假值。标签在后台时先尝试前台恢复；菜单收起则重新观察，不能用旧坐标点击其它菜单。Kimi find_tab 的返回 URL 也必须核对，同站点错误标签不视为切换成功。
 
 当前结构化查询校验覆盖 city、keyword、experience、已配置的 salary 及账号显示名；policy 中其他硬条件仍须根据当前可见平台筛选设置并保存证据，脚本不自动理解任意策略文本。`search.salaryFilter` 启用时，`salary` 必须是其允许的 Boss 标签，并在页面读回中完全匹配；薪资标签是搜索范围，不代替对职位薪资口径的详情判断。`accountLabel` 来自页面显示名，与 session 一起提供当前身份线索；当前适配器没有验证稳定唯一账号 ID，不能把同名视为同一账号，也不能用它证明线上资料版本一致。列表粗筛和 JD 判断分别记录。`eligibilityPassed` 依据完整JD、当前用户允许的投递范围与身份/职责判断，不把已允许年限的个人工龄差异重新当成否决条件。脚本不替 Agent 判断自然语言要求。平台只支持单选且用户没有固定 selectedLabels 时可在 allowedLabels 内分次搜索；固定集合无法在平台表达时记录具体差异，不擅自删项。
 
@@ -248,6 +248,18 @@ doctor 仅检查本地结构、Python、配置、锁与待核对数量，不输�
 
 ## BOSS 默认招呼的提交范围
 
+`submit` 点击一次后，自动在当前页最多等待 4000ms 的匹配回执；`reconcile {"actionId":"…","waitMs":4000}` 可对原动作再次只读等待（0–10000ms）。新沟通的明确成功提示一旦出现立即保存，不要求瞬时提示连续出现两次。点击传输异常也只补查回执，绝不再次点击。
+
+超时的 `nextAction: inspect-chat-and-reconcile-no-resend` 必须在继续新投递前处理：用 `ensure-page` 到聊天页，从当前自然会话列表找到原 JD 的招聘者，使用 `open-conversation-and-wait` 打开并核对账号、公司、招聘者、对应职位及本次时间的新出站消息和送达标志。证据完整时通过 `store.py resolve` 将原 action ID 核对为 succeeded，再对该 ID 执行 `reconcile` 同步计数和候选状态；这一步是模型审核证据后的本地对账，不是再次外发。无匹配项、只有历史消息、身份不符或时间不明时保留 unknown 和待核对原因，不能以列表预览或按钮变化判成功。聊天补查完成后恢复原查询与候选断点。
+
 `browser_actions.py submit` 仅支持 `contentMode: "platform-default"` 的新岗位原生招呼。未知正文保持 `content: null`。已有会话的自定义回复与平台简历分享使用上面的聊天入口，不受此招呼模式限制。
 
 回执核对使用原动作、账号上下文、岗位身份和提交前页面证据。平台默认招呼在发送后观察到的正文另存为 `observedContent`。历史 `text` 动作不能靠页面全文中出现相同文字就确认发送；当前适配缺少文本气泡级核验时保留 unknown，等有匹配回执再处理，不能重发。
+
+## 集中阅读当前批次的详情组
+
+用户授权集中阅读时，先对当前自然批次逐项 screen；`collect-details` 输入 `{"keys":["boss:job-a","boss:job-b"],"waitMs":4000}`，最多5个不同的 shortlisted 岗位，串行打开并保存独立详情，返回 group.id 和 group.details 的完整文本。已经加载的活动详情可作为组内第一项，无需重新点击。中断时先 inspect/defer-detail 收尾待打开项；不要盲目重复点击。
+
+`review-detail-group` 输入 `{"groupId":"返回的id","reviews":[{"key":"boss:job-a","decision":"apply","eligibilityPassed":true,"evidence":"模型对该JD的判断"},{"key":"boss:job-b","decision":"skipped","evidence":"具体不匹配依据"}]}`，必须覆盖该组全部已读详情。组审核不发送。
+
+按模型决定，每次 `submit-reviewed-detail` 只传一个原 submit 格式的 request。它重新打开该岗位、比较完整JD、复用审核并调用原 submit；文本变化返回 review-required，模型重新审阅当前详情后用 review-detail/submit 继续。回执与 unknown 规则不变，成功后 dismiss-receipt，再发送下一个；跨每15个成功检查点先处理消息。所有网页动作仍使用同一Kimi会话。

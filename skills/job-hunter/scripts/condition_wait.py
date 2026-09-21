@@ -5,9 +5,11 @@ import store
 from browsing_safety import classify
 
 
-def script(observation, predicate, arguments, timeout_ms):
+def script(observation, predicate, arguments, timeout_ms, stable_samples=2):
     if type(timeout_ms) is not int or not 0 <= timeout_ms <= 10000:
         raise ValueError('waitMs-must-be-integer-between-0-and-10000')
+    if type(stable_samples) is not int or stable_samples not in (1, 2):
+        raise ValueError('stable-samples-must-be-one-or-two')
     return "(async () => {const args=" + json.dumps(arguments,ensure_ascii=False) + ";" + """
 const observe=()=>JSON.parse(OBSERVATION);
 const accept=page=>{PREDICATE};
@@ -19,17 +21,17 @@ while(true) {
   const signature=JSON.stringify(accepted);
   stable=accepted && signature===previous ? stable+1 : (accepted ? 1 : 0);
   previous=signature;
-  if(stable>=2) return JSON.stringify({ready:true,samples,waitMs});
+  if(stable>=STABLE) return JSON.stringify({ready:true,samples,waitMs});
   const remaining=TIMEOUT-(Date.now()-start);
   if(remaining<=0) return JSON.stringify({ready:false,samples,waitMs});
   const pause=Math.min(200,remaining); const before=Date.now();
   await new Promise(resolve=>setTimeout(resolve,pause)); waitMs+=Date.now()-before;
 }
-})()""".replace('OBSERVATION',observation).replace('PREDICATE',predicate).replace('TIMEOUT',str(timeout_ms))
+})()""".replace('OBSERVATION',observation).replace('PREDICATE',predicate).replace('TIMEOUT',str(timeout_ms)).replace('STABLE',str(stable_samples))
 
 
-def observe(engine, observation, predicate, arguments, timeout_ms):
-    result=engine._call(script(observation,predicate,arguments,timeout_ms),read_only=True)
+def observe(engine, observation, predicate, arguments, timeout_ms, stable_samples=2):
+    result=engine._call(script(observation,predicate,arguments,timeout_ms,stable_samples),read_only=True)
     if engine.measurement:
         engine.measurement.wait_ms += result['waitMs']
     relative='logs/browsing/wait-'+uuid.uuid4().hex+'.json'

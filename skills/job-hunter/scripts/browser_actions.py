@@ -12,6 +12,8 @@ import store
 import boss_page
 import boss_chat
 import browser_workflows
+import detail_groups
+import condition_wait
 from browsing_safety import Safety
 import webbridge_client
 from operation_metrics import Measurement, compact
@@ -20,7 +22,7 @@ from policy_rules import browser_route
 OPERATIONS = ('status', 'resume-context', 'recover-page', 'inspect', 'start-query', 'control', 'capture-list', 'screen',
               'open-detail', 'review-detail', 'submit', 'reconcile', 'scroll',
               'dismiss-receipt', 'ack-quota-notice', 'clear-access-block', 'defer-detail', 'select-account-context', 'finish-list-read',
-              'focus-page', 'release-focus', 'open-page', 'select-page', 'restore-filters', 'revisit-candidate', 'inspect-session', 'screenshot', *boss_chat.OPERATIONS, *browser_workflows.OPERATIONS)
+              'focus-page', 'release-focus', 'open-page', 'select-page', 'restore-filters', 'revisit-candidate', 'inspect-session', 'screenshot', *boss_chat.OPERATIONS, *browser_workflows.OPERATIONS, *detail_groups.OPERATIONS)
 
 
 class BrowserError(store.StoreError):
@@ -29,7 +31,7 @@ class BrowserError(store.StoreError):
         if not isinstance(self.detail, dict):
             self.detail = {'message': str(self.detail)}
         message = str(self.detail.get('message', ''))
-        closed = 'tab was closed' in message or 'navigate first' in message
+        closed = ('tab' in message and 'was closed' in message) or 'navigate first' in message
         self.next_action = 'recover-page' if read_only and closed else ('inspect-connection' if read_only else 'reconcile-do-not-resend')
         super().__init__('browser-read-failed' if read_only else 'browser-outcome-unknown:inspect-do-not-repeat')
 
@@ -99,7 +101,9 @@ class Engine:
         """Restore only this Kimi session's BOSS job page; never send or clear history."""
         if data:
             raise store.StoreError('recover-page-takes-no-url-or-other-arguments')
-        self.safety.preflight()
+        # Re-selecting an existing task tab is passive recovery, not navigation.
+        # Keep access blocks intact until a fresh account observation clears them.
+        self.safety._state()
         flow = self.safety.status()['flow']
         if flow.get('focusEmulated'):
             self.execute('release-focus')
@@ -127,16 +131,19 @@ class Engine:
         if not urls and previous.get('operation') == 'navigate' and previous.get('status') in ('started', 'unknown'):
             raise store.StoreError('page-recovery-outcome-unknown:inspect-session-before-retrying')
         operation = 'find_tab' if urls else 'navigate'
+        if operation == 'navigate':
+            self.safety.preflight()
         args = {'url': urls[0]} if urls else {'url': 'https://www.zhipin.com/web/geek/jobs', 'newTab': True, 'group_title': '求职投递'}
         with store.transaction(self.safety.root):
-            state, flow = self.safety._state(active=True)
+            state, flow = self.safety._state(active=operation == 'navigate')
             flow['pageRecovery'] = {'status': 'started', 'operation': operation,
                                     'session': self.safety.session, 'at': store.stamp()}
             self.safety._save(state)
         result = self.transport(operation, args)
         returned = result.get('outcome') == 'returned' and (result.get('result', {}).get('data') or {}).get('success') is True
         actual_url = (result.get('result', {}).get('data') or {}).get('url')
-        if actual_url and urlsplit(actual_url).path.rstrip('/') != '/web/geek/jobs':
+        if not actual_url or (urlsplit(actual_url).scheme, urlsplit(actual_url).hostname,
+                              urlsplit(actual_url).path.rstrip('/')) != ('https', 'www.zhipin.com', '/web/geek/jobs'):
             returned = False
         with store.transaction(self.safety.root):
             state, flow = self.safety._state()
@@ -164,7 +171,7 @@ class Engine:
             flow = status['flow']
             # Do not bury the required route behind thousands of historical candidates.
             checkpoint = {key: flow.get(key) for key in ('query', 'batch', 'phase', 'activeKey',
-                          'pending', 'pageRecovery', 'lastObservation', 'backlog', 'retainedBatches', 'focusEmulated')}
+                          'pending', 'pageRecovery', 'lastObservation', 'backlog', 'retainedBatches', 'focusEmulated', 'detailGroup')}
             return {'browser': route, 'policyFingerprint': store.fingerprint(policy),
                     'session': context.get('session') or flow.get('session'),
                     'platform': status['platform'], 'accessBlock': status['accessBlock'],
@@ -173,6 +180,8 @@ class Engine:
                     'networkCalls': 0}
         if operation == 'recover-page':
             return self._recover_page(data)
+        if operation in detail_groups.OPERATIONS:
+            return detail_groups.execute(self, operation, data)
         if operation in browser_workflows.OPERATIONS:
             return browser_workflows.execute(self,operation,data)
         if operation in ('inspect-session', 'screenshot'):
@@ -289,7 +298,11 @@ class Engine:
                 # One bounded re-expansion of the same observed menu. Never retry a send.
                 if self.measurement:
                     self.measurement.recoveries.append({'kind':'reopen-menu','filter':prior.get('filter')})
-                recovered = self.execute('control', {'id':menus[0]['id'], 'interaction':'hover'})
+                # Re-open the same menu the way that menu actually opens.
+                reopen = {'id':menus[0]['id']}
+                if menus[0].get('interaction') != 'click':
+                    reopen['interaction'] = 'hover'
+                recovered = self.execute('control', reopen)
                 if 'observation' not in recovered:
                     return {**recovered, 'nextAction':'observe-and-reopen-current-menu'}
                 before = recovered['observation']
@@ -321,6 +334,9 @@ class Engine:
             owner = next((c.get('filter') for c in observation['page'].get('controls', []) if c.get('id') == data.get('id')), None)
             result['menuOpened'] = bool(owner) and any(c.get('kind') == 'filter-option' and c.get('filter') == owner
                                       for c in observation['page'].get('controls', []))
+            if not result['menuOpened']:
+                # Say what to do next instead of leaving a bare false behind.
+                result['nextAction'] = 'observe-and-reopen-current-menu'
         return {'step': result, 'observation': observation}
 
     def _submit(self, data: dict) -> dict:
@@ -373,8 +389,8 @@ class Engine:
             result = self._call(boss_page.action_script('submit', {'key': key}))
         except (ValueError, OSError):
             store.resolve(self.safety.root, self.safety.token, action_id, 'unknown', 'Browser submit result unavailable; do not resend.')
-            self.safety.settled_action(action_id)
-            return {'id': action_id, 'status': 'unknown'}
+            # An ambiguous click is never retried. Only look for its receipt.
+            return self._reconcile({'actionId': action_id})
         if result.get('status') == 'unsupported':
             store.resolve(self.safety.root, self.safety.token, action_id, 'failed', 'Driver reported no click: ' + result.get('reason', 'unsupported'))
             self.safety.settled_action(action_id)
@@ -382,6 +398,9 @@ class Engine:
         return self._reconcile({'actionId': action_id})
 
     def _reconcile(self, data: dict) -> dict:
+        timeout = data.get('waitMs', 4000)
+        if type(timeout) is not int or not 0 <= timeout <= 10000:
+            raise store.StoreError('waitMs-must-be-integer-between-0-and-10000')
         action_id = store.required_string(data, 'actionId')
         state = store.load_state(self.safety.root)
         store.require_token(state, self.safety.token)
@@ -395,7 +414,12 @@ class Engine:
             return {'id': action_id, 'status': action['status'], 'unchanged': True}
         status, evidence = 'unknown', 'Passive receipt inspection unavailable; do not resend.'
         try:
-            observed = self._inspect()
+            waited = condition_wait.observe(self, boss_page.observation_script(), '''
+return page.accountLabel===args.accountLabel && page.detail?.key===args.targetKey &&
+  page.body.includes('已向BOSS发送消息');
+''', {'accountLabel': action.get('accountLabel'), 'targetKey': action['targetKey']},
+                timeout, stable_samples=1)
+            observed = waited['observation']
             page = observed['page']
             # A button changing to "continue chatting" alone is not a delivery receipt.
             context = store.active_account_context(store.load_state(self.safety.root), 'boss')
@@ -408,7 +432,7 @@ class Engine:
                 # The platform receipt proves delivery, not the undisplayed opener text.
                 # Require this action's saved pre-click page to exclude an old receipt.
                 content_matches = self._default_receipt_baseline_matches(action, observed['evidence'])
-            if (context_matches and page.get('accountLabel') == action.get('accountLabel')
+            if (observed['classification'] == 'normal' and context_matches and page.get('accountLabel') == action.get('accountLabel')
                     and (page.get('detail') or {}).get('key') == action['targetKey']
                     and '已向BOSS发送消息' in page.get('body', '')
                     and content_matches):
@@ -424,7 +448,8 @@ class Engine:
         flow = self.safety.status()['flow']
         if self._action_belongs_to_flow(flow, action):
             self.safety.settled_action(action_id)
-        return {'id': action_id, 'status': status, 'evidence': evidence}
+        return {'id': action_id, 'status': status, 'evidence': evidence,
+                'nextAction': 'none' if status == 'succeeded' else 'inspect-chat-and-reconcile-no-resend'}
 
     def _default_receipt_baseline_matches(self, action: dict, observed: str) -> bool:
         before = action.get('browsingContext', {}).get('submitObservation')

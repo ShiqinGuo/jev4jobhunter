@@ -5,6 +5,7 @@ from pathlib import Path
 from datetime import datetime
 import re
 import uuid
+from urllib.parse import urlsplit
 
 import store
 from policy_rules import check_target
@@ -35,6 +36,8 @@ def require_access(state: dict, platform: str) -> None:
 def classify(page: dict) -> str:
     """Classify rendered content, not HTTP 200 or a successful browser RPC."""
     body, url = page.get('body', ''), page.get('url', '')
+    if url and (urlsplit(url).scheme, urlsplit(url).hostname) != ('https', 'www.zhipin.com'):
+        return 'wrong-site'
     signals = body
     # A job describing security software is not a site challenge. Alerts outside
     # the job content still win even when old cards remain rendered underneath.
@@ -433,10 +436,19 @@ class Safety:
                 relative = 'logs/browsing/context-' + uuid.uuid4().hex + '.json'
                 store.write_json(self.root / relative, {'at': store.stamp(), 'reason': 'review-context-changed', 'flow': flow})
                 flow.setdefault('archives', []).append(relative)
-                flow.update(candidates={}, seen=[])
+                flow.update(candidates={}, seen=[], retainedBatches=[], backlog=[])
+            # A new query supersedes filter restoration. Keep the old pointer in
+            # the audit trail, never restore it against a reset candidate map.
+            restoring = flow.pop('restoringBatch', None)
+            if restoring:
+                flow['events'].append({'at': store.stamp(), 'operation': 'supersede-restoring-batch',
+                                       'batch': restoring})
             flow.update(query=query, accountLabel=account, session=self.session,
                         profileFingerprint=profile_hash, policyFingerprint=policy_hash, batch=None,
                         endOfList=False, phase='configuring')
+            # Only a completed natural batch can reach this point. Its detail
+            # group must not be mistaken for the new query's group.
+            flow.pop('detailGroup', None)
             flow['events'].append({'at': store.stamp(), 'operation': 'start-query', 'query': query})
             self._save(state)
             return {'query': query, 'phase': flow['phase']}
@@ -552,7 +564,11 @@ class Safety:
         with store.transaction(self.root):
             state, flow = self._state(active=True)
             if flow['pending']:
-                raise store.StoreError('browser-step-unresolved:inspect-current-page')
+                # Passive inspect clears control/detail pendings but never a
+                # scroll pending; name the step that actually ends this one.
+                blocked = flow['pending'].get('operation')
+                remedy = 'capture-list' if blocked == 'scroll' else 'inspect-current-page'
+                raise store.StoreError('browser-step-unresolved:' + remedy + '-required')
             page = self._last_page(flow)
             self._verify(flow, page, filters=operation != 'control')
             previous_phase, previous_active = flow['phase'], flow['activeKey']

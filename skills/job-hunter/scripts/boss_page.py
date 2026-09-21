@@ -105,10 +105,13 @@ const detailRow = cards => {
 };
 const controlRows = () => {
   const rows = [];
-  const add = (el, kind, label, filter = null, identity = '') => {
+  // `interaction` states how this exact trigger opens, so a caller does not
+  // have to discover it by trying. Empty means the historical hover default.
+  const add = (el, kind, label, filter = null, identity = '', interaction = '') => {
     if (!enabled(el) || !label) return;
     const id = [kind, filter || '', identity, label].map(encodeURIComponent).join(':');
-    rows.push({el, data: {id, kind, label, ...(filter ? {filter} : {})}});
+    rows.push({el, data: {id, kind, label, ...(filter ? {filter} : {}),
+      ...(interaction ? {interaction} : {})}});
   };
   const inputs = shown('input[placeholder="搜索职位、公司"]')
     .filter(el => !el.readOnly && ['', 'text', 'search'].includes(el.type));
@@ -122,8 +125,10 @@ const controlRows = () => {
     if (['搜索', '搜索职位'].includes(text(el)) && !rows.some(row => row.el === el))
       add(el, 'search', text(el));
   }
+  // The city trigger is a dialog opener: a hover moves the pointer but never
+  // opens it, so the observed control states the click interaction explicitly.
   for (const el of shown('div.city-label[ka="switch_city_dialog_open"]')) {
-    if (unique(shown('span.cur-city-label', el))) add(el, 'filter-menu', '城市', 'city');
+    if (unique(shown('span.cur-city-label', el))) add(el, 'filter-menu', '城市', 'city', '', 'click');
   }
   for (const el of shown('ul.city-list-hot > li')) {
     const label = text(el);
@@ -220,6 +225,28 @@ const scrollTarget = () => {
   const el = document.scrollingElement;
   return el && el.clientHeight > 0 && el.scrollHeight > el.clientHeight ? el : null;
 };
+// Bounded diagnostics for the scroll step: which ancestor of the card list
+// actually scrolls, and whether the cards live inside it. Diagnostics only;
+// no decision reads this. Keep the row count small so evidence stays readable.
+const scrollChain = () => {
+  const rows = [];
+  for (let el = listRoot(); el && el !== document.documentElement && el !== document.body; el = el.parentElement) {
+    const style = getComputedStyle(el);
+    rows.push({tag: el.tagName.toLowerCase(), cls: String(el.className || '').slice(0, 48),
+      overflowY: style.overflowY, ch: Math.round(el.clientHeight), sh: Math.round(el.scrollHeight),
+      top: Math.round(el.scrollTop),
+      scrolls: /(auto|scroll)/.test(style.overflowY) && el.clientHeight > 0 && el.scrollHeight > el.clientHeight});
+    if (rows.length >= 5) break;
+  }
+  const de = document.scrollingElement;
+  if (de) {
+    const style = getComputedStyle(de);
+    rows.push({tag: de.tagName.toLowerCase(), cls: String(de.className || '').slice(0, 48),
+      overflowY: style.overflowY, ch: Math.round(de.clientHeight), sh: Math.round(de.scrollHeight),
+      top: Math.round(de.scrollTop), scrolls: de.clientHeight > 0 && de.scrollHeight > de.clientHeight});
+  }
+  return rows;
+};
 const accountLabel = () => {
   const labels = shown('.nav-figure .label, .nav-figure .username, .nav-figure .user-name, .nav-figure a[ka="header-username"] .label-text')
     .map(text).filter(s => s && !/登录|注册|消息|简历/.test(s));
@@ -268,6 +295,7 @@ return JSON.stringify({url: safeURL(currentURL), title: document.title,
   filters,
   cards: cards.map(c => c.data), detail: detail ? detail.data : null,
   controls: controls.map(c => c.data), scrollable: onBoss && !!scrollTarget(),
+  scrollChain: onBoss ? scrollChain() : [],
   endOfList: onBoss && endOfList(), loading: onBoss && loading(), listTailBelowViewport,
   scrollRemaining: scroller ? Math.max(0, scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop) : 0});
 })()"""
@@ -310,6 +338,8 @@ const run = () => {
     if (args.interaction === 'hover') {
       if (control.data.kind !== 'filter-menu' || Object.prototype.hasOwnProperty.call(args, 'value'))
         return unsupported('hover-only-for-filter-menu');
+      if (control.data.interaction === 'click')
+        return unsupported('menu-opens-on-click:send-control-without-interaction');
       const r = control.el.getBoundingClientRect();
       const x = r.left + r.width / 2, y = r.top + r.height / 2;
       if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight)

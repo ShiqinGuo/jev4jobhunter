@@ -5,6 +5,74 @@ import json
 
 
 class RetainedCandidateTests(BrowsingFixture):
+    def test_foreign_login_does_not_create_boss_block(self):
+        result = self.guard.observe({'url': 'https://docs.qq.com/doc/example',
+                                     'body': '登录腾讯文档'})
+        self.assertEqual(result['classification'], 'wrong-site')
+        self.assertIsNone(self.guard.status()['accessBlock'])
+
+    def test_blocked_recovery_only_reselects_existing_tab(self):
+        self.guard.observe(self.page(body='访问受限'))
+        original = store.load_state(self.root)['blocks']
+        calls = []
+        url = 'https://www.zhipin.com/web/geek/jobs?query=Python'
+        def transport(action, args):
+            calls.append(action)
+            return {'outcome': 'returned', 'result': {'data': {
+                'success': True, 'tabs': [{'url': url}], 'url': url}}}
+        Engine(self.root, self.token, 'boss', 'fixture-session-1', transport).execute('recover-page')
+        self.assertEqual(calls, ['list_tabs', 'find_tab'])
+        self.assertEqual(store.load_state(self.root)['blocks'], original)
+
+    def test_blocked_recovery_cannot_open_new_page(self):
+        self.guard.observe(self.page(body='访问受限'))
+        calls = []
+        def transport(action, args):
+            calls.append(action)
+            return {'outcome': 'returned', 'result': {'data': {'success': True, 'tabs': []}}}
+        with self.assertRaisesRegex(store.StoreError, 'platform-access-blocked'):
+            Engine(self.root, self.token, 'boss', 'fixture-session-1', transport).execute('recover-page')
+        self.assertEqual(calls, ['list_tabs'])
+
+    def test_policy_change_discards_restore_pointer_and_preserves_outbox(self):
+        original = self.batch()['batch']
+        self.screen(decision='deferred')
+        self.screen('boss:job-b', 'deferred')
+        self.guard.restore_filters({})
+        state = store.load_state(self.root)
+        state['actions']['receipt-a'] = {'targetKey': 'boss:job-a', 'status': 'succeeded'}
+        state['actions']['receipt-b'] = {'targetKey': 'boss:job-b', 'status': 'unknown'}
+        state['browsing']['boss']['retainedBatches'] = [original]
+        state['browsing']['boss']['backlog'] = ['boss:job-a']
+        store.write_json(self.root / 'state.json', state)
+        policy = store.load_policy(self.root)
+        policy['objective'] = 'Changed screening policy'
+        store.write_json(self.root / 'policy.json', policy)
+        self.guard.start_query(self.query)
+        self.guard.observe(self.page())
+        result = self.guard.capture_list()
+        for candidate in result['candidates'].values():
+            self.assertEqual(candidate['decision'], 'skipped')
+            self.assertEqual(candidate['evidence'], 'already-contacted-or-unresolved')
+        current = store.load_state(self.root)
+        self.assertEqual(current['actions'], state['actions'])
+        self.assertEqual(current['browsing']['boss']['backlog'], [])
+        self.assertEqual(current['browsing']['boss']['retainedBatches'], [])
+        self.assertNotIn('restoringBatch', current['browsing']['boss'])
+        self.assertTrue(current['browsing']['boss']['archives'])
+
+    def test_start_query_recovers_already_stale_restore_pointer(self):
+        original = self.batch()['batch']
+        state = store.load_state(self.root)
+        state['browsing']['boss'].update(batch=None, candidates={}, seen=[],
+                                        phase='configuring', restoringBatch=original)
+        store.write_json(self.root / 'state.json', state)
+        self.guard.start_query(self.query)
+        self.guard.observe(self.page())
+        result = self.guard.capture_list()
+        self.assertEqual(result['candidates']['boss:job-a']['decision'], 'unreviewed')
+        self.assertNotIn('restoringBatch', self.guard.status()['flow'])
+
     def test_focus_emulation_is_released_before_page_switch(self):
         calls=[]
         def transport(action,args):

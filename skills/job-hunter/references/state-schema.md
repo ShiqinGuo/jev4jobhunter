@@ -45,7 +45,8 @@ update 只接受 jobs / threads / blocks / scheduler 的一个键，以浅合并
 | batch | 当前自然加载批次的 ID、岗位 keys、查询与可见筛选证据；不固定岗位数量 |
 | candidates | 当前及已见岗位的卡片、列表决定、详情、JD 判断证据、审核所用资料 / 策略版本和必要 actionId |
 | seen | 已导入批次的稳定岗位 ID，重复观察或页面自发预取不会自动扩充当前批次 |
-| activeKey | 当前唯一正在处理的详情岗位；结束判断和必要外发后才清除 |
+| activeKey | 当前唯一正在操作的详情岗位；集中读取可在完整详情及证据保存到 detailGroup 后清除，候选仍未完成 |
+| detailGroup / retainedDetailGroups | 最多5份详情与模型判断；聊天返回导致列表重排时保留旧组证据，未完成候选留在 backlog，重新出现后读取新详情再审 |
 | pending | 已登记而尚待页面证据核对的单步浏览动作，beforeObservation 指向该步骤登记前的观察；不是 outbox pending 的替代物 |
 | phase | idle / configuring / batch / detail-opening / detail / await-list 等当前步骤 |
 | lastObservation / events | 已加载页面观察证据、时间、分类、session、runTokenHash，以及已准备的页面步骤记录；runTokenHash 用于拒绝把旧运行观察当成本轮证据 |

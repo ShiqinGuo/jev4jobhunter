@@ -161,6 +161,15 @@ class WaitDOMTests(unittest.TestCase):
     setUpClass=classmethod(dom_fixture.OfflineDOMTests.setUpClass.__func__)
     run_dom=dom_fixture.OfflineDOMTests.run_dom
 
+    def test_transient_receipt_is_captured_on_first_matching_poll(self):
+        observation="(() => JSON.stringify({value:document.querySelector('#status').textContent}))()"
+        setup="(() => {setTimeout(()=>document.querySelector('#status').textContent='delivered',60); setTimeout(()=>document.querySelector('#status').textContent='gone',310); return JSON.stringify({});})()"
+        wait=condition_wait.script(observation,"return page.value==='delivered';",{},1000,stable_samples=1)
+        result=self.run_dom([setup,wait],html='<div id="status">loading</div>')
+        self.assertTrue(result['values'][1]['ready'])
+        self.assertEqual(result['values'][1]['samples'][-1]['value'],'delivered')
+        self.assertEqual(result['calls'],[])
+
     def test_dom_wait_reads_delayed_change_without_clicking(self):
         observation="(() => JSON.stringify({value:document.querySelector('#status').textContent}))()"
         setup="(() => {setTimeout(()=>document.querySelector('#status').textContent='ready',60); return JSON.stringify({});})()"

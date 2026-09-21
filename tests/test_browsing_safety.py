@@ -48,7 +48,7 @@ class BrowsingFixture(unittest.TestCase):
                 'evidence': 'Fixture visible card', **changes}
 
     def page(self, keys=('boss:job-a', 'boss:job-b'), **changes):
-        return {'url': 'https://example.invalid/jobs?city=杭州&query=Python&experience=1-3年',
+        return {'url': 'https://www.zhipin.com/web/geek/jobs?city=杭州&query=Python&experience=1-3年',
                 'body': 'Fixture rendered job list', 'accountLabel': 'Fixture Candidate',
                 'filters': {k: deepcopy(self.query[k]) for k in ('city', 'keyword', 'experience')},
                 'cards': [self.card(key) for key in keys], 'controls': [{'id': 'keyword-input'}], **changes}
@@ -93,7 +93,7 @@ class BrowsingOrderTests(BrowsingFixture):
         calls = []
         engine = self.recovery_engine([
             {'outcome': 'returned', 'result': {'data': {'success': True, 'tabs': []}}},
-            {'outcome': 'returned', 'result': {'data': {'success': True}}}], calls)
+            {'outcome': 'returned', 'result': {'data': {'success': True, 'url': 'https://www.zhipin.com/web/geek/jobs'}}}], calls)
         result = engine.execute('recover-page')
         self.assertEqual([a for a, _ in calls], ['list_tabs', 'navigate'])
         self.assertTrue(calls[1][1]['newTab'])
@@ -108,16 +108,16 @@ class BrowsingOrderTests(BrowsingFixture):
         url = 'https://www.zhipin.com/web/geek/jobs?query=python'
         engine = self.recovery_engine([
             {'outcome': 'returned', 'result': {'data': {'success': True, 'tabs': [{'url': url}]}}},
-            {'outcome': 'returned', 'result': {'data': {'success': True}}}], calls)
+            {'outcome': 'returned', 'result': {'data': {'success': True, 'url': 'https://www.zhipin.com/web/geek/jobs'}}}], calls)
         engine.execute('recover-page')
         self.assertEqual(calls, [('list_tabs', {}), ('find_tab', {'url': url})])
 
-    def test_recovery_rejects_access_block_before_any_browser_call(self):
+    def test_recovery_rejects_navigation_after_passive_inventory(self):
         self.guard.observe(self.page(body='访问受限'))
         calls = []
         with self.assertRaisesRegex(store.StoreError, 'platform-access-blocked'):
-            self.recovery_engine([], calls).execute('recover-page')
-        self.assertEqual(calls, [])
+            self.recovery_engine([{'outcome': 'returned', 'result': {'data': {'success': True, 'tabs': []}}}], calls).execute('recover-page')
+        self.assertEqual(calls, [('list_tabs', {})])
 
     def test_recovery_rejects_other_session_and_arbitrary_url(self):
         self.batch()
@@ -146,7 +146,7 @@ class BrowsingOrderTests(BrowsingFixture):
             {'outcome': 'returned', 'result': {'data': {'success': True, 'tabs': [{'url': 'https://www.zhipin.com/web/geek/jobs'}]}}},
             {'outcome': 'unknown'},
             {'outcome': 'returned', 'result': {'data': {'success': True, 'tabs': []}}},
-            {'outcome': 'returned', 'result': {'data': {'success': True}}}], calls)
+            {'outcome': 'returned', 'result': {'data': {'success': True, 'url': 'https://www.zhipin.com/web/geek/jobs'}}}], calls)
         with self.assertRaises(BrowserError):
             engine.execute('recover-page')
         engine.execute('recover-page')
@@ -159,7 +159,7 @@ class BrowsingOrderTests(BrowsingFixture):
         store.write_json(self.root / 'state.json', state)
         calls = []
         with self.assertRaisesRegex(store.StoreError, 'reconcile-pending-submit'):
-            self.recovery_engine([], calls).execute('recover-page')
+            self.recovery_engine([{'outcome': 'returned', 'result': {'data': {'success': True, 'tabs': []}}}], calls).execute('recover-page')
         self.assertEqual(calls, [])
 
     def test_read_error_preserves_cause_and_suggests_same_session_recovery(self):
@@ -676,8 +676,8 @@ class BrowsingAccessTests(BrowsingFixture):
     def test_rendered_restriction_wins_even_when_stale_cards_remain(self):
         self.assertEqual(classify(self.page(body='当前IP存在异常行为')), 'access-restricted')
         self.assertEqual(classify(self.page(body='登录查看完整内容')), 'login-required')
-        self.assertEqual(classify({'url': 'https://example.invalid/passport/zp/403', 'body': ''}), 'access-restricted')
-        self.assertEqual(classify({'body': '请稍候', 'url': 'https://example.invalid/'}), 'loading-or-unsupported')
+        self.assertEqual(classify({'url': 'https://www.zhipin.com/passport/zp/403', 'body': ''}), 'access-restricted')
+        self.assertEqual(classify({'body': '请稍候', 'url': 'https://www.zhipin.com/'}), 'loading-or-unsupported')
 
     def test_clear_requires_retry_time_and_same_account_normal_evidence(self):
         self.guard.observe(self.page(body='访问受限，请于 2026-09-16 09:00 后重新核验'))
@@ -791,14 +791,48 @@ class ScriptedTransport:
             raise value
         if isinstance(value, dict) and 'outcome' in value:
             return value
+        if args.get('code', '').startswith('(async') and 'samples' not in value:
+            value = {'ready': '已向BOSS发送消息' in value.get('body', ''), 'samples': [value], 'waitMs': 0}
         return {'outcome': 'returned', 'result': {'data': {'value': json.dumps(value, ensure_ascii=False)}}}
 
     @property
     def mutation_calls(self):
-        return [call for call in self.calls if call[1]['code'] != boss_page.observation_script()]
+        return [call for call in self.calls if call[1]['code'] != boss_page.observation_script()
+                and not call[1]['code'].startswith('(async')]
 
 
 class BrowsingEngineTests(BrowsingFixture):
+    def test_delayed_greet_receipt_waits_and_only_clicks_once(self):
+        page = self.ready_to_submit()
+        receipt = deepcopy(page)
+        receipt['body'] = '已向BOSS发送消息'
+        transport = ScriptedTransport(page, {'status': 'clicked'},
+            {'ready': True, 'samples': [page, receipt], 'waitMs': 200})
+        result = self.engine(transport).execute('submit', {'request': self.request()})
+        self.assertEqual(result['status'], 'succeeded')
+        self.assertEqual(result['metrics']['waitMs'], 200)
+        self.assertEqual(len(transport.mutation_calls), 1)
+        self.assertEqual(result['nextAction'], 'none')
+
+    def test_greet_timeout_directs_chat_reconciliation_without_resend(self):
+        page = self.ready_to_submit()
+        transport = ScriptedTransport(page, {'status': 'clicked'},
+            {'ready': False, 'samples': [page, page], 'waitMs': 4000})
+        result = self.engine(transport).execute('submit', {'request': self.request()})
+        self.assertEqual(result['status'], 'unknown')
+        self.assertEqual(result['nextAction'], 'inspect-chat-and-reconcile-no-resend')
+        self.assertEqual(len(transport.mutation_calls), 1)
+
+    def test_ambiguous_greet_click_only_waits_for_receipt(self):
+        page = self.ready_to_submit()
+        receipt = deepcopy(page)
+        receipt['body'] = '已向BOSS发送消息'
+        transport = ScriptedTransport(page, {'outcome': 'unknown'},
+            {'ready': True, 'samples': [receipt], 'waitMs': 0})
+        result = self.engine(transport).execute('submit', {'request': self.request()})
+        self.assertEqual(result['status'], 'succeeded')
+        self.assertEqual(len(transport.mutation_calls), 1)
+
     def test_hover_filter_uses_one_pointer_move_and_no_outbox(self):
         self.guard.start_query(self.query)
         page = self.page(controls=[{'id': 'degree-menu', 'kind': 'filter-menu', 'filter': 'degree', 'label': '学历要求'}])
@@ -1026,7 +1060,7 @@ class BrowsingEngineTests(BrowsingFixture):
 
     def test_unknown_submit_is_durable_and_cannot_be_sent_again(self):
         page = self.ready_to_submit()
-        transport = ScriptedTransport(page, {'outcome': 'unknown'})
+        transport = ScriptedTransport(page, {'outcome': 'unknown'}, page)
         result = self.engine(transport).execute('submit', {'request': self.request()})
         self.assertEqual(result['status'], 'unknown')
         self.assertEqual(len(transport.mutation_calls), 1)
@@ -1263,7 +1297,7 @@ class BrowsingEngineTests(BrowsingFixture):
 
     def test_late_receipt_updates_old_candidate_without_disturbing_new_active(self):
         page = self.ready_to_submit()
-        unknown = self.engine(ScriptedTransport(page, {'outcome': 'unknown'})).execute('submit', {'request': self.request()})
+        unknown = self.engine(ScriptedTransport(page, {'outcome': 'unknown'}, page)).execute('submit', {'request': self.request()})
         self.guard.start_query(self.query)
         self.guard.observe(self.page(('boss:job-b',)))
         self.guard.capture_list()

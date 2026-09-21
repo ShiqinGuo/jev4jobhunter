@@ -226,6 +226,33 @@ class OfflineDOMTests(unittest.TestCase):
         self.assertEqual(duplicated['values'][0]['status'], 'unsupported')
         self.assertEqual(duplicated['calls'], [])
 
+    def test_city_trigger_declares_click_and_refuses_hover_dispatch(self):
+        html = fixture().replace('<span class="cur-city-label">杭州</span>',
+            '<div id="city-trigger" class="city-label" ka="switch_city_dialog_open">'
+            '<span class="cur-city-label">杭州</span></div>')
+        observed = self.run_dom([boss_page.observation_script()], html=html)['values'][0]
+        city = next(c for c in observed['controls'] if c['kind'] == 'filter-menu' and c['label'] == '城市')
+        # The opener states how it opens; a caller must not have to discover it.
+        self.assertEqual(city.get('interaction'), 'click')
+        # A hover request is refused before any pointer or click action, instead
+        # of silently reporting menuOpened false.
+        hovered = self.run_dom([boss_page.action_script('control', {'id': city['id'], 'interaction': 'hover'})], html=html)
+        self.assertEqual(hovered['values'][0]['status'], 'unsupported')
+        self.assertEqual(hovered['values'][0]['reason'], 'menu-opens-on-click:send-control-without-interaction')
+        self.assertEqual(hovered['calls'], [])
+        # Hover menus keep the historical hover default.
+        hover_menu = next(c for c in observed['controls'] if c['kind'] == 'filter-menu'
+                          and c['label'] == '工作经验')
+        self.assertNotIn('interaction', hover_menu)
+
+    def test_scroll_chain_is_bounded_and_names_the_actual_scroller(self):
+        value = self.run_dom([boss_page.observation_script()])['values'][0]
+        chain = value['scrollChain']
+        self.assertEqual(chain[0]['cls'], 'job-list-container')
+        self.assertTrue(chain[0]['scrolls'])
+        self.assertLessEqual(len(chain), 6)
+        self.assertTrue(all(set(row) == {'tag', 'cls', 'overflowY', 'ch', 'sh', 'top', 'scrolls'} for row in chain))
+
     def test_live_footer_company_name_is_scoped_to_its_card(self):
         html = fixture('<span class="boss-name">页面外无关公司</span>').replace(
             '<div class="company-name">示例科技</div>',
