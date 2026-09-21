@@ -1,22 +1,22 @@
-<h1 align="center">JevHunter</h1>
+<h1 align="center">Jev4JobHunter</h1>
 <p align="center">用 Jev 筛岗位，让 Agent 完成投递与跟进。</p>
 <p align="center">
   <a href="https://docs.typesafe.ai/"><img alt="Jev by TypeSafe" src="https://img.shields.io/badge/Jev-TypeSafe-7c3aed"></a>
-  <a href="https://github.com/ShiqinGuo/jev-hunter/releases/latest"><img alt="Version" src="https://img.shields.io/github/v/release/ShiqinGuo/jev-hunter?color=2563eb"></a>
-  <a href="https://github.com/ShiqinGuo/jev-hunter/actions/workflows/test.yml"><img alt="Tests" src="https://github.com/ShiqinGuo/jev-hunter/actions/workflows/test.yml/badge.svg"></a>
+  <a href="https://github.com/ShiqinGuo/jev4jobhunter/releases/latest"><img alt="Version" src="https://img.shields.io/github/v/release/ShiqinGuo/jev4jobhunter?color=2563eb"></a>
+  <a href="https://github.com/ShiqinGuo/jev4jobhunter/actions/workflows/test.yml"><img alt="Tests" src="https://github.com/ShiqinGuo/jev4jobhunter/actions/workflows/test.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2563eb"></a>
 </p>
-<p align="center"><a href="README.en.md">English</a> · <a href="#快速开始">快速开始</a> · <a href="#jev-负责什么">Jev 负责什么</a> · <a href="#技术架构">技术架构</a> · <a href="#当前支持范围">支持范围</a> · <a href="CHANGELOG.md">更新记录</a> · <a href="https://github.com/ShiqinGuo/jev-hunter/issues">反馈问题</a></p>
+<p align="center"><a href="README.en.md">English</a> · <a href="#快速开始">快速开始</a> · <a href="#jev-负责什么">Jev 负责什么</a> · <a href="#技术架构">技术架构</a> · <a href="#当前支持范围">支持范围</a> · <a href="CHANGELOG.md">更新记录</a> · <a href="https://github.com/ShiqinGuo/jev4jobhunter/issues">反馈问题</a></p>
 
-**JevHunter 是结合 [TypeSafe Jev](https://docs.typesafe.ai/) 的 AI 求职投递插件。** Jev 判断哪些岗位值得看、是否匹配；Codex / Claude Code 阅读完整 JD、组织投递和 HR 跟进；插件记录每一步结果。把简历和求职条件交给 Agent，从找岗位推进到有回执的沟通。
+**Jev4JobHunter 是结合 [TypeSafe Jev](https://docs.typesafe.ai/) 的 AI 求职投递插件。** Jev 判断哪些岗位值得看、是否匹配；Codex / Claude Code 阅读完整 JD、组织投递和 HR 跟进；插件记录每一步结果。把简历和求职条件交给 Agent，从找岗位推进到有回执的沟通。
 
 适用于 **Codex、Claude Code 和兼容 Agent Skills 的宿主**；当前网页投递支持 **BOSS 直聘（BOSS Zhipin）**，通过 Kimi WebBridge 操作你已登录的浏览器。Jev 可选启用，配置方式见下方。
 
-![JevHunter 功能动画：个人条件连接岗位要求，保留未知项，按授权沟通并核验回执、保存记录](docs/media/demo.zh-CN.gif)
+![Jev4JobHunter 功能动画：个人条件连接岗位要求，保留未知项，按授权沟通并核验回执、保存记录](docs/media/demo.zh-CN.gif)
 
 [静态图](docs/media/demo-poster.zh-CN.png)
 
-**开始使用：** [Codex / Claude Code 安装](#快速开始) · [下载插件](https://github.com/ShiqinGuo/jev-hunter/releases/latest) · [真实验证范围](VALIDATION.md)
+**开始使用：** [Codex / Claude Code 安装](#快速开始) · [下载插件](https://github.com/ShiqinGuo/jev4jobhunter/releases/latest) · [真实验证范围](VALIDATION.md)
 
 ## 从筛选到投递，一次接着一次
 
@@ -27,7 +27,7 @@
 
 ## Jev 负责什么
 
-[Jev](https://docs.typesafe.ai/) 是 TypeSafe 的 System One 模型，返回选择与概率。JevHunter 在需要理解岗位语义的两个环节使用它：
+[Jev](https://docs.typesafe.ai/) 是 TypeSafe 的 System One 模型，返回选择与概率。Jev4JobHunter 在需要理解岗位语义的两个环节使用它：
 
 | 环节 | Jev 的判断 | 后续动作 |
 |---|---|---|
@@ -48,7 +48,7 @@ Agent：阅读 JD、解释匹配、准备沟通
 插件：执行已授权投递 → 核验回执 → 保存进度
 ```
 
-这种分工也见于 [Jevmail](https://github.com/fazlerocks/jevmail) 的邮件分类、[fast-jev-compaction](https://github.com/tamaratran/fast-jev-compaction) 的上下文保留判断，以及 [jev-ultrafast](https://github.com/browser-use/jev-ultrafast) 的浏览器动作选择。JevHunter 把同样的“判断交给 Jev，流程交给应用”用在岗位匹配上。
+这种分工也见于 [Jevmail](https://github.com/fazlerocks/jevmail) 的邮件分类、[fast-jev-compaction](https://github.com/tamaratran/fast-jev-compaction) 的上下文保留判断，以及 [jev-ultrafast](https://github.com/browser-use/jev-ultrafast) 的浏览器动作选择。Jev4JobHunter 把同样的“判断交给 Jev，流程交给应用”用在岗位匹配上。
 
 **已验证：** v0.6.0 本地 236 项测试通过；虚构岗位 Jev API 调用成功。当前尚未测出 Jev 对真实岗位筛选准确率、费用或端到端耗时的改善，详见 [验证记录](VALIDATION.md)。上方动画沿用 Job Hunter 名称，是功能示意。
 
@@ -65,7 +65,7 @@ Agent：阅读 JD、解释匹配、准备沟通
 使用提供 `plugin add` 的 Codex CLI：
 
 ```sh
-codex plugin marketplace add ShiqinGuo/jev-hunter
+codex plugin marketplace add ShiqinGuo/jev4jobhunter
 codex plugin add job-hunter@job-hunter
 ```
 
@@ -74,7 +74,7 @@ codex plugin add job-hunter@job-hunter
 #### Claude Code
 
 ```sh
-claude plugin marketplace add ShiqinGuo/jev-hunter
+claude plugin marketplace add ShiqinGuo/jev4jobhunter
 claude plugin install job-hunter@job-hunter
 ```
 
@@ -82,13 +82,13 @@ claude plugin install job-hunter@job-hunter
 
 #### 独立 Skill
 
-从 [Releases](https://github.com/ShiqinGuo/jev-hunter/releases) 下载发布包，将 `skills/job-hunter` **整个目录**放入宿主支持的 Skill 目录，保留 references、scripts 和 agents。也可直接在对话里指定源码路径。
+从 [Releases](https://github.com/ShiqinGuo/jev4jobhunter/releases) 下载发布包，将 `skills/job-hunter` **整个目录**放入宿主支持的 Skill 目录，保留 references、scripts 和 agents。也可直接在对话里指定源码路径。
 
 ### 2. 准备浏览器环境
 
 网页筛选还需要 [Kimi 浏览器扩展与本机 daemon](https://www.kimi.com/products/kimi-webbridge)，以及宿主可读取的 `kimi-webbridge` Skill。在官方页面选择“搭配本地 Agent”，按说明完成安装和连接，在对应浏览器登录 BOSS 直聘；请先让 Agent 确认 Kimi 连接与当前登录状态。
 
-安装 JevHunter 插件不会同时安装这些浏览器组件。暂未准备浏览器时，可以先提供简历和岗位描述做本地匹配分析。
+安装 Jev4JobHunter 插件不会同时安装这些浏览器组件。暂未准备浏览器时，可以先提供简历和岗位描述做本地匹配分析。
 
 ### 3. 启用 Jev（可选）
 
@@ -107,13 +107,13 @@ claude plugin marketplace add typesafe-ai/skills
 claude plugin install typesafe@typesafe-ai
 ```
 
-在本机配置 `TYPESAFE_API_KEY` 环境变量，重新启动宿主以继承变量。Windows 也支持由宿主直接读取当前用户环境。密钥不放进聊天、仓库或求职配置；Jev 调用会将本次判断所需的岗位文本与匹配条件发送给 TypeSafe。安装 JevHunter 不会自动安装 TypeSafe Skill 或配置密钥。
+在本机配置 `TYPESAFE_API_KEY` 环境变量，重新启动宿主以继承变量。Windows 也支持由宿主直接读取当前用户环境。密钥不放进聊天、仓库或求职配置；Jev 调用会将本次判断所需的岗位文本与匹配条件发送给 TypeSafe。安装 Jev4JobHunter 不会自动安装 TypeSafe Skill 或配置密钥。
 
 ### 4. 开始第一个任务
 
 安装或升级后在新对话加载。首次可以这样说：
 
-> 用 JevHunter 找 5 个适合我的岗位，启用 Jev 辅助筛选，列出匹配理由和信息缺口，先不发送消息。
+> 用 Jev4JobHunter 找 5 个适合我的岗位，启用 Jev 辅助筛选，列出匹配理由和信息缺口，先不发送消息。
 
 需要执行时，把目标和授权说清楚：
 
@@ -152,7 +152,7 @@ flowchart LR
 
 ## 技术架构
 
-![JevHunter 技术架构：Agent 与 Skill 调用本地受约束的 Python 入口，通过 Kimi WebBridge 操作 BOSS；个人条件与执行状态保存在本地](docs/media/architecture.zh-CN.svg)
+![Jev4JobHunter 技术架构：Agent 与 Skill 调用本地受约束的 Python 入口，通过 Kimi WebBridge 操作 BOSS；个人条件与执行状态保存在本地](docs/media/architecture.zh-CN.svg)
 
 宿主 Agent 提供模型和推理，Skill 组织信息补充与匹配；启用 Jev 后，由宿主按官方 TypeSafe Skill 调用 API 完成语义判断。架构图展示基础执行路径，Jev 是该路径之外的可选判断服务。网页步骤经过 `browser_actions.py`、`browsing_safety.py` 和策略检查，再通过 `webbridge_client.py` 调用 Kimi；`boss_page.py` 负责页面观察与适配。`store.py` 保存进度、防重与回执。
 

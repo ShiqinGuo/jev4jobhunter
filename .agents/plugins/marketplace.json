@@ -1,6 +1,6 @@
 {
   "name": "job-hunter",
-  "interface": {"displayName": "JevHunter"},
+  "interface": {"displayName": "Jev4JobHunter"},
   "plugins": [
     {
       "name": "job-hunter",

@@ -1,14 +1,14 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "job-hunter",
-  "description": "JevHunter：用 TypeSafe Jev 筛岗位，让 Codex / Claude Code 完成投递与 HR 跟进。支持 BOSS 直聘，保留匹配依据、投递回执与本地进度。",
+  "description": "Jev4JobHunter：用 TypeSafe Jev 筛岗位，让 Codex / Claude Code 完成投递与 HR 跟进。支持 BOSS 直聘，保留匹配依据、投递回执与本地进度。",
   "owner": {
     "name": "shaneguo"
   },
   "plugins": [
     {
       "name": "job-hunter",
-      "description": "JevHunter：用 TypeSafe Jev 筛岗位，让 Codex / Claude Code 完成投递与 HR 跟进。支持 BOSS 直聘，保留匹配依据、投递回执与本地进度。",
+      "description": "Jev4JobHunter：用 TypeSafe Jev 筛岗位，让 Codex / Claude Code 完成投递与 HR 跟进。支持 BOSS 直聘，保留匹配依据、投递回执与本地进度。",
       "author": {
         "name": "shaneguo"
       },

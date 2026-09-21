@@ -1,7 +1,7 @@
 {
   "name": "job-hunter",
   "version": "0.6.0",
-  "description": "JevHunter：用 TypeSafe Jev 筛岗位，让 Codex / Claude Code 完成投递与 HR 跟进。支持 BOSS 直聘，保留匹配依据、投递回执与本地进度。",
+  "description": "Jev4JobHunter：用 TypeSafe Jev 筛岗位，让 Codex / Claude Code 完成投递与 HR 跟进。支持 BOSS 直聘，保留匹配依据、投递回执与本地进度。",
   "author": {
     "name": "shaneguo"
   },
@@ -20,9 +20,9 @@
   ],
   "skills": "./skills/",
   "interface": {
-    "displayName": "JevHunter",
+    "displayName": "Jev4JobHunter",
     "shortDescription": "用 Jev 筛岗位，让 Agent 完成投递与跟进",
-    "longDescription": "JevHunter：用 TypeSafe Jev 筛岗位，让 Codex / Claude Code 完成投递与 HR 跟进。支持 BOSS 直聘，保留匹配依据、投递回执与本地进度。 Jev 可选启用，辅助列表粗筛与详情判断；网页操作通过 Kimi WebBridge，按授权执行。",
+    "longDescription": "Jev4JobHunter：用 TypeSafe Jev 筛岗位，让 Codex / Claude Code 完成投递与 HR 跟进。支持 BOSS 直聘，保留匹配依据、投递回执与本地进度。 Jev 可选启用，辅助列表粗筛与详情判断；网页操作通过 Kimi WebBridge，按授权执行。",
     "developerName": "shaneguo",
     "category": "Productivity",
     "capabilities": [
