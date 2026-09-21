@@ -1,5 +1,13 @@
 # 本地验证记录
 
+## 0.6.0 — 2026-09-21
+
+本地 Windows / Python 3.12 执行 `python -X utf8 -B -m unittest discover -s tests -v`：**236 项通过，0 跳过，62.936 秒**。覆盖详情组与中断恢复、城市控件交互、菜单切换和滚动诊断，以及已有运行时与离线 Chromium DOM 回归；本轮没有执行招聘平台外发。
+
+TypeSafe 官方 Skill 已通过 Codex 安装并校验。使用本机用户环境中的 `TYPESAFE_API_KEY` 向官方端点发送一条虚构 Python 后端岗位，实际返回模型 `jev-1.13.0`、Choice `python_backend`，请求成功；密钥未输出或写入文件。这只验证鉴权、连通性和响应契约，不代表真实岗位判断准确率已校准。Windows 已启动宿主未继承新环境变量的读取方式已补入 Skill。
+
+Skill 结构与 diff 校验通过；结构校验器首次按 Windows 默认 GBK 解码失败，显式使用 `-X utf8` 后通过，未修改校验器。发布包使用仓库打包器并逐文件核验 SHA-256。远端 CI 状态以发布提交的 GitHub Actions 为准。
+
 ## 0.5.0 — 2026-09-20
 
 本地执行 `python -B -X utf8 -m unittest discover -s tests -v`：**214 项通过，0 跳过，47.799 秒**（Windows / Python 3.12）。测试覆盖状态机、模拟传输和断网 Chromium DOM；不把离线发送样例当作招聘平台发送回执。

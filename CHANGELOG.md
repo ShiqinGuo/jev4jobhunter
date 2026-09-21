@@ -8,6 +8,7 @@
 - 已展开的菜单会吞掉下一个悬停：先移开指针再移到目标，一次有界移动且不点击（关闭菜单不得选中任何选项），记入 measurement recoveries 的 `clear-open-menu`。
 - 观察新增有界 `scrollChain` 诊断，使证据能指明真正滚动的元素；scroll pending 由 `capture-list` 解除而非被动 inspect，错误信息改为指明真正能结束该步骤的操作。
 - 新增「何时使用 Jev」说明：列表粗筛与详情判断可用 TypeSafe Jev 做类型化判断，policy 规则可判的硬过滤、浏览器操作与回复文案不使用；降级、密钥来源与证据记录约定见 SKILL.md。此项无脚本与状态格式变更。
+- 补充 Codex / 通用 Skill 的 `typesafe-ai` 安装名，以及 Windows 宿主尚未继承新环境变量时从当前用户环境读取密钥的方式。
 
 状态格式保持 v2；不新增插件自身的对外网络调用。
 

@@ -73,7 +73,9 @@ Jev（TypeSafe System One 评估模型）在可用时用于两个判断点，做
 - **列表粗筛**（`screen` 之前）：把当前自然列表的卡片与 policy.search 的粗筛条件作为 state，用 `choice` 从当前批次选出值得打开详情的，或用 `noul` 逐张判断是否值得打开。
 - **详情判断**（`review-detail` / `review-detail-group` 之前）：把 JD 全文与 `search.matchingDecisionRules`、`search.jdReviewMustCheck` 作为 state，用 `choice` 得出 apply / skipped / deferred，用 `noul` 得出资格结论；结果映射为现有 review 形状（`decision` + `eligibilityPassed` + `evidence`）。
 
-调用按官方 `typesafe:typesafe-ai` 技能与其实时文档的契约直连，不为此新增插件脚本：`POST https://api.typesafe.ai/v1/systemone`，`Authorization: Bearer $TYPESAFE_API_KEY`，模型 `jev-latest`。密钥只从环境变量读取，不写入 policy、状态或日志。
+调用前读取官方 TypeSafe 技能与其实时文档：Codex / 通用 Skill 安装名为 `typesafe-ai`，Claude Code 插件中为 `typesafe:typesafe-ai`。按当前文档契约直连，不为此新增插件脚本：`POST https://api.typesafe.ai/v1/systemone`，`Authorization: Bearer $TYPESAFE_API_KEY`，模型 `jev-latest`。密钥只从环境变量读取，不写入 policy、状态或日志。
+
+Windows 上刚设置的用户环境变量可能尚未被已启动的宿主进程继承。先读取进程中的 `TYPESAFE_API_KEY`；为空时，可在同一次 PowerShell 请求中用 `[Environment]::GetEnvironmentVariable('TYPESAFE_API_KEY', 'User')` 读取当前用户环境并直接构造请求头，不输出密钥、不将其作为命令行参数传给子进程。宿主支持本机命令执行时可按此调用；不能访问本机环境或发送 HTTP 请求时，按下面的降级规则处理。
 
 不交给 Jev：浏览器操作选择、回复文案生成、薪资 / 城市 / 经验 / 公司排除等 policy 已能判定的硬过滤，以及滚动、换城市等流程控制。
 
