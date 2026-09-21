@@ -1,22 +1,28 @@
 {
   "name": "job-hunter",
   "version": "0.6.0",
-  "description": "个人求职助手：发现和比较职位、执行已授权沟通并追踪进度；网页操作固定使用 Kimi WebBridge，压缩后重新读取通道与断点，不自动改用自带浏览器。",
+  "description": "JevHunter：用 TypeSafe Jev 筛岗位，让 Codex / Claude Code 完成投递与 HR 跟进。支持 BOSS 直聘，保留匹配依据、投递回执与本地进度。",
   "author": {
     "name": "shaneguo"
   },
   "keywords": [
+    "jev",
+    "typesafe",
     "job-search",
-    "career",
-    "browser",
-    "applications",
-    "agent-skills"
+    "job-application",
+    "job-matching",
+    "application-tracking",
+    "boss-zhipin",
+    "codex",
+    "claude-code",
+    "agent-skills",
+    "browser-automation"
   ],
   "skills": "./skills/",
   "interface": {
-    "displayName": "Job Hunter 求职助手",
-    "shortDescription": "跨平台找岗位、准备投递、处理消息与跟踪进度",
-    "longDescription": "个人求职助手：发现和比较职位、执行已授权沟通并追踪进度；网页操作固定使用 Kimi WebBridge，压缩后重新读取通道与断点，不自动改用自带浏览器。 核心 Skill 可独立分发；未适配网页动作保留材料和具体缺口。",
+    "displayName": "JevHunter",
+    "shortDescription": "用 Jev 筛岗位，让 Agent 完成投递与跟进",
+    "longDescription": "JevHunter：用 TypeSafe Jev 筛岗位，让 Codex / Claude Code 完成投递与 HR 跟进。支持 BOSS 直聘，保留匹配依据、投递回执与本地进度。 Jev 可选启用，辅助列表粗筛与详情判断；网页操作通过 Kimi WebBridge，按授权执行。",
     "developerName": "shaneguo",
     "category": "Productivity",
     "capabilities": [

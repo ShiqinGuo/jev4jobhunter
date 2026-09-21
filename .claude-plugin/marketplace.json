@@ -1,14 +1,14 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "job-hunter",
-  "description": "面向个人求职的 Agent 插件：按需补齐条件，逐项筛选岗位，执行已授权沟通并保留回执。",
+  "description": "JevHunter：用 TypeSafe Jev 筛岗位，让 Codex / Claude Code 完成投递与 HR 跟进。支持 BOSS 直聘，保留匹配依据、投递回执与本地进度。",
   "owner": {
     "name": "shaneguo"
   },
   "plugins": [
     {
       "name": "job-hunter",
-      "description": "个人求职助手：发现和比较职位、执行已授权沟通并追踪进度；网页操作固定使用 Kimi WebBridge，压缩后重新读取通道与断点，不自动改用自带浏览器。",
+      "description": "JevHunter：用 TypeSafe Jev 筛岗位，让 Codex / Claude Code 完成投递与 HR 跟进。支持 BOSS 直聘，保留匹配依据、投递回执与本地进度。",
       "author": {
         "name": "shaneguo"
       },
