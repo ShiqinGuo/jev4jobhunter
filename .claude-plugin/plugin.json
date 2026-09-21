@@ -1,6 +1,6 @@
 {
   "name": "job-hunter",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "个人求职助手：发现和比较职位、执行已授权沟通并追踪进度；网页操作固定使用 Kimi WebBridge，压缩后重新读取通道与断点，不自动改用自带浏览器。",
   "author": {
     "name": "shaneguo"
