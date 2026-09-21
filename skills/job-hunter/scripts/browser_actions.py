@@ -324,6 +324,19 @@ class Engine:
             return result
         if result.get('status') == 'hover-target':
             self.safety.preflight()
+            open_filters = {c.get('filter') for c in before['page'].get('controls', [])
+                            if c.get('kind') == 'filter-option' and c.get('filter')}
+            target_filter = next((c.get('filter') for c in before['page'].get('controls', [])
+                                  if c.get('id') == data.get('id')), None)
+            if open_filters and target_filter not in open_filters:
+                # A menu that is already open swallows the next trigger's hover,
+                # so leave it before moving onto the target. One bounded move,
+                # no click: closing a menu must never select an option.
+                if self.measurement:
+                    self.measurement.recoveries.append({'kind': 'clear-open-menu',
+                                                        'filters': sorted(open_filters)})
+                self.transport('cdp', {'method': 'Input.dispatchMouseEvent', 'params': {
+                    'type': 'mouseMoved', 'x': 1, 'y': 1}})
             moved = self.transport('cdp', {'method': 'Input.dispatchMouseEvent', 'params': {
                 'type': 'mouseMoved', 'x': result['x'], 'y': result['y']}})
             if moved.get('outcome') != 'returned' or moved.get('result', {}).get('ok') is False:
