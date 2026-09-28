@@ -20,6 +20,7 @@ def running():
     asyncio.create_task(stop_when_requested())
 
 LIST = '/api/zpgeek/app/geek/search/cardlist'
+RECOMMEND = '/api/zpgeek/app/geek/recommend/joblist'
 DETAIL = '/api/zpgeek/jobapp/geek/job/querydetail'
 GREET = '/api/zpgeek/app/friend/add'
 
@@ -56,10 +57,10 @@ def job(value, company=None, complete=False):
         raise ValueError('job-id-missing')
     description = text(value.get('jobDesc'))
     return {'key': 'boss:' + str(identifier), 'jobId': str(identifier),
-            'title': text(value.get('positionName')), 'company': text(company or value.get('company')),
-            'city': text(value.get('locationName', value.get('city'))),
-            'salary': text(value.get('salaryDesc')), 'experience': text(value.get('experienceName')),
-            'degree': text(value.get('degreeName')), 'text': description,
+            'title': text(value.get('positionName', value.get('jobName'))), 'company': text(company or value.get('company', value.get('brandName'))),
+            'city': text(value.get('locationName', value.get('city', value.get('cityName')))),
+            'salary': text(value.get('salaryDesc')), 'experience': text(value.get('experienceName', value.get('jobExperience'))),
+            'degree': text(value.get('degreeName', value.get('jobDegree'))), 'text': description,
             'complete': bool(complete and description.strip()),
             'publisherType': 'headhunter' if value.get('showHunterJob') in (True, 1) else 'unknown'}
 
@@ -73,8 +74,11 @@ def materials(path, envelope):
         return [{'type': 'error', 'code': code, 'source': path}]
     data = envelope.get('zpData') or {}
     if path == '/api/batch/requests':
-        return [event for route, part in data.items() if route in (LIST, DETAIL, GREET)
+        return [event for route, part in data.items() if route in (LIST, RECOMMEND, DETAIL, GREET)
                 for event in materials(route, part)]
+    if path == RECOMMEND:
+        return [{'type': 'list', 'jobs': [job(row) for row in data.get('jobList', [])],
+                 'hasMore': data.get('hasMore', True), 'source': path}]
     if path == LIST:
         groups = [row for row in data.get('cardList', []) if 'positionSearchCardList' in row]
         return [{'type': 'list', 'jobs': [job(row) for group in groups
@@ -101,7 +105,7 @@ def request(flow):
 def response(flow):
     host = flow.request.host
     path = flow.request.path.split('?', 1)[0]
-    if not (host == 'zhipin.com' or host.endswith('.zhipin.com')) or path not in ('/api/batch/requests', LIST, DETAIL, GREET):
+    if not (host == 'zhipin.com' or host.endswith('.zhipin.com')) or path not in ('/api/batch/requests', LIST, RECOMMEND, DETAIL, GREET):
         return
     context = flow.metadata.get('jobHunter')
     if not context or time.time() - context['at'] > 120:

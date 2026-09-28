@@ -7,6 +7,7 @@
 入口：`python scripts/android_actions.py --config DATA/android.json --data-dir DATA OPERATION`。一般操作自动获取并释放已有 store 运行锁，其他执行者占用时保留其状态。
 
 1. `start` 启动仅监听本机的代理，经 ADB reverse 连接手机；只解码 BOSS 域名。搜索、滚动、详情和沟通必须从 UI 触发。
+   App 已有连接可能继续绕过新代理；首次启用后正常关闭再打开 BOSS，保留登录。没有新响应时不要误判为空列表。主页推荐也可采集，但仅在用户授权使用推荐流时纳入本次任务。
 2. 在“我的 → 在线简历”等能读取账号显示名的页面用 `bind-account` 核对 policy 中的账号显示名。回搜索页，`arm-search` 建立动作标记，正常点击搜索，再 `read-batch` 接收该动作产生的列表。
 3. 首次 `calibrate-scroll` 连续测两次新增批次，保存固定坐标、时长及滚动上限。以后 `scroll-next` 复用参数，仅根据响应判断是否已加载；未收到响应不等于结果耗尽。换设备、分辨率或 App 版本后重新校准。
 4. `collect-details` 根据页面中的职位名和公司定位并点击，从响应校验岗位 ID 和完整 JD。`evaluate-batch` 一次批量布尔判断，`apply-batch` 默认只返回队列，追加 `--send` 执行已有授权。

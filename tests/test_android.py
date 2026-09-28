@@ -40,6 +40,15 @@ class AndroidTests(unittest.TestCase):
     def test_nonzero_code_cannot_be_successful_receipt(self):
         self.assertEqual(capture.materials(capture.GREET, {'code': 7})[0]['type'], 'error')
 
+    def test_recommendation_cards_normalize_without_inventing_full_jd(self):
+        event = capture.materials(capture.RECOMMEND, {'code': 0, 'zpData': {'hasMore': True, 'jobList': [
+            {'jobId': 123, 'jobName': 'Python', 'brandName': 'Example', 'cityName': '杭州',
+             'jobExperience': '1-3年', 'jobDegree': '本科', 'salaryDesc': '15-20K'}]}})[0]
+        job = event['jobs'][0]
+        self.assertEqual((job['key'], job['title'], job['company'], job['city']), ('boss:123', 'Python', 'Example', '杭州'))
+        self.assertFalse(job['complete'])
+        self.assertEqual(event['source'], capture.RECOMMEND)
+
     def test_proxy_stop_explicitly_clears_derived_android_proxy(self):
         device = object.__new__(Device)
         device.config = {'proxyPort': 8877}
