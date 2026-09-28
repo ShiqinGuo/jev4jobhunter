@@ -9,6 +9,7 @@
 1. `start` 启动仅监听本机的代理，经 ADB reverse 连接手机；只解码 BOSS 域名。搜索、滚动、详情和沟通必须从 UI 触发。
    App 已有连接可能继续绕过新代理；首次启用后正常关闭再打开 BOSS，保留登录。没有新响应时不要误判为空列表。主页推荐也可采集，但仅在用户授权使用推荐流时纳入本次任务。
 2. 在“我的 → 在线简历”等能读取账号显示名的页面用 `bind-account` 核对 policy 中的账号显示名。回搜索页，`arm-search` 建立动作标记，正常点击搜索，再 `read-batch` 接收该动作产生的列表。
+   首页推荐与主动搜索的筛选器不同，分别读取 `policy.search.androidFilters.recommendation` / `.search`（薪资 `salaryLabels`、经验 `experienceLabels`、活跃 `bossActivity`）；没有配置时按已有策略核对原生选项，不自动互换档位。首页薪资是单选，多档要求按档位依次确认、采集并跨档去重，收齐后合并一次 Jev 判断；切档前收完该档选定岗位的完整 JD。首页没有独立“经验不限”，不能用“全部”替代。换城、切入口后重新核验筛选；首页选中样式未暴露在 XML 的 `selected` 属性中时用截图核验，不能把点击成功当成已选。搜索页可读回 `selected=true`。每次确认筛选前建立动作标记，以接收对应的新列表响应。
 3. 首次 `calibrate-scroll` 连续测两次新增批次，保存固定坐标、时长及滚动上限。以后 `scroll-next` 复用参数，仅根据响应判断是否已加载；未收到响应不等于结果耗尽。换设备、分辨率或 App 版本后重新校准。
 4. `collect-details` 根据页面中的职位名和公司定位并点击，从响应校验岗位 ID 和完整 JD。`evaluate-batch` 一次批量布尔判断，`apply-batch` 默认只返回队列，追加 `--send` 执行已有授权。
 5. 发送复用 store outbox、去重、黑名单和平台限制。点击前持久化 pending；只有同一 UI 动作产生的成功沟通响应才能记 succeeded，其他情况 unknown 并停止。进入聊天不算成功。沟通文案由宿主对照完整 policy 和真实经历生成。
