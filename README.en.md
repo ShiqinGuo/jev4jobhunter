@@ -6,7 +6,7 @@
 
 [简体中文](README.md) · [Install](#installation) · [What Jev does](#what-jev-does) · [Supported scope](#supported-scope) · [Architecture](#architecture)
 
-**Jev4JobHunter is an AI job application plugin with [TypeSafe Jev](https://docs.typesafe.ai/) for job matching.** Jev judges which roles deserve a closer look and whether they fit. Codex / Claude Code reads the full descriptions, handles outreach and follows up with recruiters. The plugin tracks each step and its receipt.
+**Jev4JobHunter is an AI job application plugin with [TypeSafe Jev](https://docs.typesafe.ai/) for job matching.** The plugin collects complete JDs; Jev makes one batch decision about initial contact. Codex / Claude Code handles authorized outreach and recruiter follow-up, with recorded receipts.
 
 Works with **Codex, Claude Code and compatible Agent Skills hosts**. Live browser outreach currently supports **BOSS Zhipin / BOSS 直聘** through Kimi WebBridge. Jev is optional and requires the setup below.
 
@@ -14,34 +14,11 @@ Works with **Codex, Claude Code and compatible Agent Skills hosts**. Live browse
 
 [Static image](docs/media/demo-poster.en.png)
 
-## From job matching to follow-up
-
-- **Find roles worth reading:** compare the full job description with your experience and preferences; keep evidence and missing information visible.
-- **Review a group:** collect up to five job descriptions sequentially, review them together, then recheck each role before outreach.
-- **Act on your choices:** initiate authorized conversations, reply to recruiters, share your platform resume and verify receipts.
-- **Resume your search:** keep candidate decisions and checkpoints; reconcile uncertain outcomes before sending again.
-
 ## What Jev does
 
 [Jev](https://docs.typesafe.ai/) evaluates a whole batch of complete job descriptions in one call, with one boolean per job: is it worth initiating contact? Accepted jobs enter the authorized queue directly. The host checks the full policy during recruiter conversations and explains relevant, factual experience.
 
 Code enforces explicit exclusions, deduplication, authorization and platform restrictions. Browser actions use Kimi. The [Android adapter](skills/job-hunter/references/android.md) uses ADB for UI actions and passively captures their existing responses; it never calls or replays recruiting APIs. A calibrated gesture is reused for loading. List summaries are never treated as complete JDs.
-
-### Small judgments inside a complete workflow
-
-```text
-Your preferences + current jobs
-               ↓
-Complete JD batch → Jev: worth contacting?
-               ↓
-Agent: read the JD, explain the match, prepare outreach
-               ↓
-Plugin: authorized outreach → verify receipt → save progress
-```
-
-The same separation appears in [Jevmail](https://github.com/fazlerocks/jevmail) for email classification, [fast-jev-compaction](https://github.com/tamaratran/fast-jev-compaction) for context retention, and [jev-ultrafast](https://github.com/browser-use/jev-ultrafast) for browser action selection. Jev4JobHunter applies it to job matching: Jev makes focused judgments; the application owns the workflow.
-
-**Verified in v0.6.0:** 236 local tests passed, and a synthetic job evaluation succeeded through the Jev API. Improvements in real-job matching accuracy, cost and end-to-end time have not been measured. See [validation](VALIDATION.md). The animation illustrates the workflow under the former Job Hunter name.
 
 ## Installation
 
@@ -69,20 +46,7 @@ Before the first browser task, open the [Kimi Browser Extension / Kimi WebBridge
 
 ### Enable Jev (optional)
 
-The built-in Jev runner requires an API key. For maintaining or extending judgments, optionally install the [official TypeSafe Skill](https://github.com/typesafe-ai/skills) using one method for your host.
-
-**Codex:**
-
-```sh
-npx skills add typesafe-ai/skills --skill typesafe-ai --agent codex --global
-```
-
-**Claude Code:**
-
-```sh
-claude plugin marketplace add typesafe-ai/skills
-claude plugin install typesafe@typesafe-ai
-```
+The built-in Jev runner needs no additional Skill installation.
 
 Set `TYPESAFE_API_KEY` in your local environment and restart the host to inherit it. On Windows, the host can also read the current user's environment directly. Keep the key out of chat, source files and job-search configuration. Jev requests send the job text and matching context needed for that judgment to TypeSafe. Installing Jev4JobHunter does not install the TypeSafe Skill or configure its key.
 

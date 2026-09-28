@@ -8,7 +8,7 @@
 </p>
 <p align="center"><a href="README.en.md">English</a> · <a href="#快速开始">快速开始</a> · <a href="#jev-负责什么">Jev 负责什么</a> · <a href="#技术架构">技术架构</a> · <a href="#当前支持范围">支持范围</a> · <a href="CHANGELOG.md">更新记录</a> · <a href="https://github.com/ShiqinGuo/jev4jobhunter/issues">反馈问题</a></p>
 
-**Jev4JobHunter 是结合 [TypeSafe Jev](https://docs.typesafe.ai/) 的 AI 求职投递插件。** Jev 判断哪些岗位值得看、是否匹配；Codex / Claude Code 阅读完整 JD、组织投递和 HR 跟进；插件记录每一步结果。把简历和求职条件交给 Agent，从找岗位推进到有回执的沟通。
+**Jev4JobHunter 是结合 [TypeSafe Jev](https://docs.typesafe.ai/) 的 AI 求职投递插件。** 插件收齐完整 JD，Jev 一次批量判断是否值得沟通；Codex / Claude Code 组织投递和 HR 跟进，插件记录结果。把简历和求职条件交给 Agent，从找岗位推进到有回执的沟通。
 
 适用于 **Codex、Claude Code 和兼容 Agent Skills 的宿主**；当前网页投递支持 **BOSS 直聘（BOSS Zhipin）**，通过 Kimi WebBridge 操作你已登录的浏览器。Jev 可选启用，配置方式见下方。
 
@@ -18,34 +18,11 @@
 
 **开始使用：** [Codex / Claude Code 安装](#快速开始) · [下载插件](https://github.com/ShiqinGuo/jev4jobhunter/releases/latest) · [真实验证范围](VALIDATION.md)
 
-## 从筛选到投递，一次接着一次
-
-- **筛出值得看的岗位**：结合简历、求职条件与完整 JD 判断匹配，记录理由和缺失信息。
-- **读完一组再决定**：串行收齐当前批次的完整 JD，一次 Jev 布尔判断形成发送队列。
-- **把投递做完**：按你的授权发起沟通、回复 HR、分享平台简历，并核验对应回执。
-- **下次接着找**：保存候选、处理进度和已联系记录，中断后继续，结果不明先核对。
-
 ## Jev 负责什么
 
 [Jev](https://docs.typesafe.ai/) 对整批完整 JD 一次判断，每个岗位只回答“是否值得主动沟通”。结果直接进入已授权的发送队列，不再叠加资格判断或宿主逐岗复判。沟通阶段由宿主按完整 policy 复核，并结合真实经历主动说明匹配点。
 
 名单排除、去重、授权和平台限制由代码处理。网页使用 Kimi；[Android 真机](skills/job-hunter/references/android.md) 使用 ADB 操作按钮、滚动和打开详情，从这些操作已经产生的响应获取岗位材料，不调用或重放招聘接口。首次校准后复用固定滑动参数。Jev 未配置时可由宿主批量判断并标明来源。
-
-### 小判断，接进完整求职流程
-
-```text
-你的条件 + 当前岗位
-        ↓
-整批完整 JD → Jev：是否值得主动沟通？
-        ↓
-Agent：沟通阶段按 policy 复核、解释匹配
-        ↓
-插件：执行已授权投递 → 核验回执 → 保存进度
-```
-
-这种分工也见于 [Jevmail](https://github.com/fazlerocks/jevmail) 的邮件分类、[fast-jev-compaction](https://github.com/tamaratran/fast-jev-compaction) 的上下文保留判断，以及 [jev-ultrafast](https://github.com/browser-use/jev-ultrafast) 的浏览器动作选择。Jev4JobHunter 把同样的“判断交给 Jev，流程交给应用”用在岗位匹配上。
-
-**已验证：** v0.6.0 本地 236 项测试通过；虚构岗位 Jev API 调用成功。当前尚未测出 Jev 对真实岗位筛选准确率、费用或端到端耗时的改善，详见 [验证记录](VALIDATION.md)。上方动画沿用 Job Hunter 名称，是功能示意。
 
 ## 快速开始
 
@@ -87,22 +64,7 @@ claude plugin install job-hunter@job-hunter
 
 ### 3. 启用 Jev（可选）
 
-运行内置 Jev 批量入口只需配置密钥。维护或扩展问题时，可为宿主安装 [TypeSafe 官方 Skill](https://github.com/typesafe-ai/skills)，按使用的 Agent 选择一种方式：
-
-**Codex：**
-
-```sh
-npx skills add typesafe-ai/skills --skill typesafe-ai --agent codex --global
-```
-
-**Claude Code：**
-
-```sh
-claude plugin marketplace add typesafe-ai/skills
-claude plugin install typesafe@typesafe-ai
-```
-
-在本机配置 `TYPESAFE_API_KEY` 环境变量，重新启动宿主以继承变量。Windows 也支持由宿主直接读取当前用户环境。密钥不放进聊天、仓库或求职配置；Jev 调用会将本次判断所需的岗位文本与匹配条件发送给 TypeSafe。安装 Jev4JobHunter 不会自动安装 TypeSafe Skill 或配置密钥。
+内置 Jev 入口无需额外安装 Skill。在本机配置 `TYPESAFE_API_KEY` 环境变量，重新启动宿主以继承变量。Windows 也支持由宿主直接读取当前用户环境。密钥不放进聊天、仓库或求职配置；Jev 调用会将本次判断所需的岗位文本与匹配条件发送给 TypeSafe。安装 Jev4JobHunter 不会自动安装 TypeSafe Skill 或配置密钥。
 
 ### 4. 开始第一个任务
 
@@ -113,37 +75,6 @@ claude plugin install typesafe@typesafe-ai
 需要执行时，把目标和授权说清楚：
 
 > 对这些已筛选通过的岗位，使用平台当前招呼语发起沟通，逐项核验结果。
-
-## 核心能力
-
-| 能力 | 能帮你做什么 |
-|---|---|
-| 求职信息引导 | 从已有简历提取事实，只补问会改变筛选或回复的信息；回答保存后复用 |
-| 有依据的岗位筛选 | 区分硬条件、软偏好和未知项；核对正式工龄、职责与完整 JD |
-| 详情组阅读 | 当前自然批次完整 JD 一次布尔判断；发送前检查身份和文本变化 |
-| 按授权沟通 | 已有明确授权直接使用；新沟通保留平台回执，结果不明先核对 |
-| 断点与记录 | 保存候选去向、筛选进度、成功和未知动作；中断后继续，不清空历史重投 |
-| 账号上下文 | 按已核验账号与限制范围处理暂停，避免旧账号记录误用于独立账号 |
-| 求职复盘 | 根据已有岗位与沟通证据分析错配，形成筛选建议；不把索简历当作通过面试门槛 |
-| 定时与日报 | 由宿主触发任务，插件记录轮次与交付，支持发现漏跑和补报 |
-
-## 使用流程
-
-```mermaid
-flowchart LR
-    A[简历与求职条件] --> B[补齐关键缺项]
-    B --> C[设置平台筛选]
-    C --> D[去重与明确排除项]
-    D --> E[收齐当前批次完整 JD]
-    E --> F{Jev 一次布尔判断}
-    F -->|合适且已授权| G[按队列沟通并核验回执]
-    F -->|不匹配或信息不足| H[跳过或保存待确认项]
-    G --> I[处理下一项]
-    H --> I
-    I --> D
-```
-
-处理完当前列表，再继续查看新增岗位。未启用 Jev 时，相应判断由宿主 Agent 完成。
 
 ## 技术架构
 
@@ -192,16 +123,3 @@ flowchart LR
 | [运行指南](skills/job-hunter/references/runtime.md) | 单步入口、配置、授权与动作命令 |
 | [验证记录](VALIDATION.md) | 离线测试、实际网站结果和未验证范围 |
 | [贡献说明](CONTRIBUTING.md) | 开发、测试和问题反馈 |
-| [维护方向](ROADMAP.md) | 后续适配与验证工作 |
-
-## 最近更新
-
-| 版本 | 日期 | 主要变化 |
-|---|---|---|
-| **0.6.0** | 2026-09-21 | 详情组批量阅读、Jev 判断指引与 Codex / Windows 适配 |
-| 0.5.0 | 2026-09-20 | 会话闭环、条件等待、操作测量与断点恢复 |
-| **0.4.1** | 2026-09-16 | 固定 Kimi 通道、压缩后恢复与查询约束 |
-| 0.4.0 | 2026-09-15 | 逐步浏览检查、账号上下文、页面适配、资料变更后重审和信息引导 |
-| 0.3.0 | 2026-09-08 | 结构化授权、申请防重、策略更新、运行恢复与日报补报 |
-
-完整记录见 [CHANGELOG.md](CHANGELOG.md)。欢迎提交脱敏复现和改进建议；项目采用 [MIT](LICENSE) 许可证。

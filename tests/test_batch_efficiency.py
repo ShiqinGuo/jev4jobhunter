@@ -99,51 +99,58 @@ class BatchTests(BrowsingFixture):
 
     def response(self,payload):
         self.payloads.append(deepcopy(payload))
-        answers={}
-        for key,question in payload['questions'].items():
-            if question['type']=='noul':
-                answers[key]={'type':'noul','noul':.8}
-            else:
-                options=list(question['criteria'])
-                answers[key]={'type':'choice','choice':options[0],'confidence':.8,
-                              'probabilities':dict(zip(options,[.8,.1,.1]))}
+        answers={key:{'type':'noul','noul':.8} for key in payload['questions']}
         return {'model':'jev-1.13.0','answers':answers,'usage':{'input_tokens':100,'output_tokens':30}}
 
-    def evaluate(self,operation='evaluate-list',data=None,send=None):
-        return jev.execute(self.engine,operation,data or {},send or self.response)
-
-    def test_jev_batches_all_unreviewed_jobs_in_one_call_and_does_not_decide_or_send(self):
+    def prepare_details(self):
         self.payloads=[]
-        before=store.load_state(self.root)
+        self.guard.screen_many(self.reviews())
+        state=store.load_state(self.root)
+        flow=state['browsing']['boss']
+        flow['detailGroup']={'id':'group','batchId':flow['batch']['id'],'keys':self.keys,
+            'details':{key:{'key':key,'text':'Full JD','evidence':'fixture'} for key in self.keys},
+            'reviews':{},'policyFingerprint':flow['policyFingerprint'],'profileFingerprint':flow['profileFingerprint']}
+        store.write_json(self.root/'state.json',state)
+
+    def evaluate(self,data=None,send=None):
+        return jev.execute(self.engine,data or {},send or self.response)
+
+    def test_jev_batches_all_complete_jobs_in_one_call_without_sending(self):
+        self.prepare_details()
         result=self.evaluate()
         self.assertEqual(result['status'],'evaluated')
         self.assertEqual(len(self.payloads),1)
         self.assertEqual(len(self.payloads[0]['questions']),2)
         self.assertIn('jobs[1]',self.payloads[0]['questions']['decision_1']['instructions'])
-        self.assertEqual(store.load_state(self.root),before)
+        self.assertFalse(store.load_state(self.root)['actions'])
+        self.assertEqual(len(self.guard.status()['flow']['detailGroup']['reviews']),2)
         self.assertNotIn('authorization',self.payloads[0]['state'])
 
     def test_jev_pinned_cache_reuses_only_identical_material_and_alias_keeps_evidence(self):
-        self.payloads=[]
-        first=self.evaluate(data={'model':'jev-1.13.0'})
+        self.prepare_details()
+        original=store.load_state(self.root)
+        # A saved provider result survives a failed local review commit.
+        with patch.object(detail_groups,'execute',side_effect=OSError('interrupted review')):
+            with self.assertRaises(OSError):
+                self.evaluate(data={'model':'jev-1.13.0'})
         second=self.evaluate(data={'model':'jev-1.13.0'})
         self.assertTrue(second['cached'])
         self.assertEqual(second['providerCalls'],0)
         self.assertEqual(second['usage'],{'input_tokens':0,'output_tokens':0})
-        self.assertEqual(first['evidence'],second['evidence'])
         self.assertEqual(len(self.payloads),1)
+        store.write_json(self.root/'state.json',original)
         alias1=self.evaluate()
+        store.write_json(self.root/'state.json',original)
         alias2=self.evaluate()
         self.assertFalse(alias2['cached'])
         self.assertNotEqual(alias1['evidence'],alias2['evidence'])
-        state=store.load_state(self.root)
-        state['browsing']['boss']['candidates'][self.keys[0]]['card']['text']='Changed description'
-        store.write_json(self.root/'state.json',state)
+        original['browsing']['boss']['detailGroup']['details'][self.keys[0]]['text']='Changed full JD'
+        store.write_json(self.root/'state.json',original)
         changed=self.evaluate(data={'model':'jev-1.13.0'})
         self.assertFalse(changed['cached'])
 
     def test_jev_rejects_policy_change_while_waiting(self):
-        self.payloads=[]
+        self.prepare_details()
         def changed(payload):
             result=self.response(payload)
             policy=store.load_policy(self.root)
@@ -155,7 +162,7 @@ class BatchTests(BrowsingFixture):
         self.assertFalse(list((self.root/'logs').glob('jev/*.json')))
 
     def test_jev_malformed_or_missing_answers_never_become_reviews(self):
-        self.payloads=[]
+        self.prepare_details()
         def missing(payload):
             result=self.response(payload)
             result['answers'].pop('decision_1')
@@ -167,15 +174,8 @@ class BatchTests(BrowsingFixture):
         self.assertFalse(store.load_state(self.root)['actions'])
 
     def test_jev_details_uses_boolean_and_records_batch_decisions(self):
-        self.payloads=[]
-        self.guard.screen_many(self.reviews())
-        state=store.load_state(self.root)
-        flow=state['browsing']['boss']
-        flow['detailGroup']={'id':'group','batchId':flow['batch']['id'],'keys':self.keys,
-            'details':{key:{'key':key,'text':'Full JD','evidence':'fixture'} for key in self.keys},
-            'reviews':{},'policyFingerprint':flow['policyFingerprint'],'profileFingerprint':flow['profileFingerprint']}
-        store.write_json(self.root/'state.json',state)
-        result=self.evaluate('evaluate-details')
+        self.prepare_details()
+        result=self.evaluate()
         self.assertEqual(len(self.payloads),1)
         self.assertEqual(len(self.payloads[0]['questions']),2)
         self.assertEqual(len(result['judgments']),2)

@@ -1,6 +1,6 @@
 # 本地状态与外发记录
 
-使用 Python 3.10+ 标准库。脚本路径相对 Skill 根目录；在插件模式和独立 Skill 模式下都是 scripts/store.py、scripts/audit_gate.py。不依赖根目录的 PowerShell 包装。
+使用 Python 3.10+ 标准库。脚本路径相对 Skill 根目录；在插件模式和独立 Skill 模式下都是 scripts/store.py、scripts/audit_gate.py。
 
 ## 常用命令
 
@@ -51,7 +51,7 @@ update 只接受 jobs / threads / blocks / scheduler 的一个键，以浅合并
 | phase | idle / configuring / batch / detail-opening / detail / await-list 等当前步骤 |
 | lastObservation / events | 已加载页面观察证据、时间、分类、session、runTokenHash，以及已准备的页面步骤记录；runTokenHash 用于拒绝把旧运行观察当成本轮证据 |
 
-卡片从 unreviewed 经 screen 进入 shortlisted、skipped 或 deferred；只有 shortlisted 能打开详情。详情 apply 决定要求明确的资格判断证据，随后与 outbox 关联；skipped / deferred 或实际外发收尾后才结束此候选。批次中仍有未判断、已入选未处理、活动详情或待核对浏览步骤时，不能滚动或更换查询。
+卡片从 unreviewed 经 screen-many 进入 shortlisted、skipped 或 deferred；只有 shortlisted 能打开详情。详情 apply 决定记录完整 JD 的批量布尔判断证据，随后与 outbox 关联；skipped / deferred 或实际外发收尾后才结束此候选。批次中仍有未判断、已入选未处理、活动详情或待核对浏览步骤时，不能滚动或更换查询。
 
 profileFingerprint 是本地 profile.md 字节的 SHA-256，不包含网页个人资料。查询、详情审核和 outbox 保留各自使用的资料版本；资料或策略变化后先暂挂未发旧候选、核对已开始外发，再由 start-query 归档旧浏览决定并按新配置重筛。已见列表及旧 skipped 不能继续作为新配置的排除结论；actions 中的成功、unknown、pending 仍参与去重，不随浏览归档清除。
 
@@ -68,6 +68,8 @@ submit pending 通过原 actionId 的 reconcile 核对；无匹配回执保留 u
 jobs 的 key 为 platform:稳定职位ID，值建议含 title、company、url、status、salary 原文、jdSummary、匹配证据、未知项、evaluatedAt、profileFingerprint、policyFingerprint。候选 status 为 candidate / shortlisted / skipped；实际投递结果以 actions 为准。相同职位跨平台的稳定别名用 sameOpportunityAs 数组，双向登记。
 
 threads 的 key 用稳定会话 ID；若只有低可信本地组合标识，记录 identityConfidence，发消息前核对。值含 company、hrName、jobKeys、stage、humanTakenOver、needsReview、lastInboundId、history。stage 可为 talking / pendingHuman / interview / closed；保留足够的作者和消息时间，不仅存最后一行预览。
+
+stage=interview 需要 interviewInvite.inboundId/evidence；interviewConfirmed=true 还需 interview.startAt（带时区）、mode、confirmationEvidence。没有双方确认不能把询问约面记为排期完成。
 
 人接管：我方新消息先查 actions 的内容、目标、时间及旧 audit。证据确认为用户发的才设 humanTakenOver；证据不足设 needsReview。resume 唯一定位并刷新上下文后清除对应标记，不改变原授权范围。
 

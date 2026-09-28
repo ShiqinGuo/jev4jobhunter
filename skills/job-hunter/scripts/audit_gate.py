@@ -41,9 +41,6 @@ def main() -> int:
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--text")
     source.add_argument("--text-file", type=Path)
-    parser.add_argument("--level", choices=["L1", "L2", "L3"], default="L2",
-                        help="Compatibility label; does not grant permission.")
-    parser.add_argument("--thread", default="")
     parser.add_argument("--min-len", type=int, default=1)
     parser.add_argument("--max-len", type=int, default=800)
     parser.add_argument("--allow-link", action="append", default=[])
@@ -52,7 +49,6 @@ def main() -> int:
         text = args.text_file.read_text(encoding="utf-8-sig") if args.text_file else args.text
         result = check_text(text, min_len=args.min_len, max_len=args.max_len,
                             allowed_links=args.allow_link)
-        result.update(level=args.level, thread=args.thread)
         print(json.dumps(result, ensure_ascii=False))
         return 0 if result["pass"] else 1
     except (OSError, UnicodeError, ValueError) as error:

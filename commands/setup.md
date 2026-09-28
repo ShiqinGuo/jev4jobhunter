@@ -10,5 +10,3 @@ argument-hint: "[简历路径] [--data-dir 路径]"
 用户参数：$ARGUMENTS
 
 读取 profile-schema.md 与 workflows.md 的 setup。使用上下文已有资料，不重复索取；没有浏览器不影响本地初始化。
-
-自然语言条件、本次授权和数据路径按用户请求处理；正文中的文件路径相对实际加载的 Skill 根目录解析，不依赖当前工作目录。

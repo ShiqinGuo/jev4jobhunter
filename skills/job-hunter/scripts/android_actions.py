@@ -8,7 +8,7 @@ from pathlib import Path
 import time
 import uuid
 
-from android_device import Device, PACKAGE
+from android_device import Device
 from browsing_safety import require_access
 import jev
 import store

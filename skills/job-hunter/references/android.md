@@ -29,6 +29,6 @@ python scripts/android_actions.py --config DATA/android.json --data-dir DATA pre
 | collect-details / evaluate-batch | 收齐当前批次完整 JD，一次布尔判断 |
 | apply-batch | 默认 dry-run；仅已有外发授权时加 --send |
 
-状态写入使用 store 运行锁。发送复用 outbox：点击前写 pending，匹配动作的成功响应才记 succeeded，未知则停止且不重发。正常进入聊天不算送达。
+CLI 自动获取并在 finally 释放 store 运行锁，不要在调用前手动 lock acquire。发送复用 outbox：点击前写 pending，匹配动作的成功响应才记 succeeded，未知则停止且不重发。正常进入聊天不算送达。
 
 `android_capture.py` 只解码 UI 已产生的响应，不调用或重放招聘接口。缺响应不等于空列表。保存职位必要字段及回执，不保存登录数据。停止时先写 `http_proxy=:0`（原先无代理时）并核验派生主机为空，再关闭代理；仅删除该键会留下断网代理。拔 USB 前执行 stop。

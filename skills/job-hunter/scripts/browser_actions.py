@@ -184,7 +184,7 @@ class Engine:
         if operation == 'recover-page':
             return self._recover_page(data)
         if operation in jev.OPERATIONS:
-            return jev.execute(self, operation, data)
+            return jev.execute(self, data)
         if operation in detail_groups.OPERATIONS:
             return detail_groups.execute(self, operation, data)
         if operation in browser_workflows.OPERATIONS:

@@ -5,14 +5,14 @@ description: 帮个人求职者批量读取 JD、用 Jev 判断是否投递、�
 
 # Job Hunter
 
-目标是有来源的岗位判断、按授权完成的沟通和可核验的记录。用户最新要求优先；profile 保存事实，policy 保存当前策略，历史日志只作证据。
+目标是有来源的岗位判断、按授权完成的沟通和可核验的记录。用户最新要求优先；profile 保存事实，policy 保存当前策略，历史日志只作证据。脚本和参考路径相对本 Skill 根目录解析。
 
 ## 启动与恢复
 
 1. 数据目录按本次明确路径 → `JOB_HUNTER_HOME` → `~/.job-hunter` 解析。用 `store.py effective-config` 读取当前策略与指纹；缺画像仍可搜索，不能编造年限、经历或技能填补缺项。
 2. 首次网页工作先读 [drivers.md](references/drivers.md)、已安装的 kimi-webbridge 技能和 [browsing-safety.md](references/browsing-safety.md)。当前网页执行固定走 Kimi，不自动换到 CUA、宿主浏览器或其他通道。
 3. 网页新运行、中断或压缩后先执行 `browser_actions.py --data-dir DATA_DIR --operation resume-context`，读取真实断点、账号与限制。同一上下文已读且未变化的技能不用每轮重读；新上下文、规则更新或遇到未覆盖操作时补读对应章节。规则可复用，动态账号、策略、页面和回执不能拿旧摘要替代。
-4. 写本地状态或操作网页前，用 `store.py --data-dir DATA_DIR lock acquire` 获取运行锁；同一数据目录只有一个执行者。只读报告无需锁。命令参数与恢复操作见 [runtime.md](references/runtime.md)。
+4. 网页及直接写 store 状态前，用 `store.py --data-dir DATA_DIR lock acquire` 获取运行锁；Android CLI 自动获取和释放锁，不要提前手动加锁。只读报告无需锁。参数见 [runtime.md](references/runtime.md)。
 
 只读分析和插件维护无需连接招聘平台。维护或迁移按用户指定范围修改源码，不能在求职运行中临时修改安装缓存来绕过未适配能力。
 
@@ -21,7 +21,7 @@ description: 帮个人求职者批量读取 JD、用 Jev 判断是否投递、�
 | 任务 | 读取 |
 |---|---|
 | 初始化画像、修改条件、复盘反馈 | [intake.md](references/intake.md)、[profile-schema.md](references/profile-schema.md) |
-| 找岗位、列表筛选、完整 JD 判断 | [matching.md](references/matching.md)、[platform-boss.md](references/platform-boss.md)；其他平台见 [platform-generic.md](references/platform-generic.md) |
+| 岗位比较、沟通阶段复核 | [matching.md](references/matching.md)；网页差异见 [platform-boss.md](references/platform-boss.md)，其他平台见 [platform-generic.md](references/platform-generic.md) |
 | Jev 批量判断或调用排查 | [jev.md](references/jev.md) |
 | Android 真机采集、固定滚动与批量投递 | [android.md](references/android.md) |
 | daily、apply、reply、resume、schedule | [workflows.md](references/workflows.md) 中对应流程 |
@@ -33,7 +33,7 @@ description: 帮个人求职者批量读取 JD、用 Jev 判断是否投递、�
 ## 搜索与判断
 
 - 先设置平台能表达的硬筛选，再处理当前自然加载的列表。指定查询词和岗位方向分别处理；`search.queries` 是允许的查询词，不能为凑数量自行换词或修改固定筛选。
-- 当前自然批次先检查明确黑名单、已联系和平台限制，再通过 UI 收齐完整 JD。默认跳过模型列表粗筛；列表里的 `jobDesc.content` 是摘要，不当成全文。网页用 `screen-many` 登记可读取候选。
+- 当前自然批次先检查明确黑名单、已联系和平台限制，再通过 UI 收齐完整 JD。列表不调用模型粗筛；列表里的 `jobDesc.content` 是摘要，不当成全文。网页用 `screen-many` 登记可读取候选。
 - 整批完整 JD 一次交给 Jev，每岗只有一个“是否值得主动沟通”的布尔判断。允许积极尝试；不再追加资格问题、五岗拆组或宿主逐岗复审。Android 用 `evaluate-batch` → `apply-batch --send`；网页用 `evaluate-details` 自动登记组决定后依次提交。
 - 合适岗位经 `submit-reviewed-detail` 重新定位、核对当前详情并执行已授权沟通。返回 `review-required` 时审阅变化后的内容。没有新事实或策略变化，不反复生成同一判断。
 - 普通聊天优先 `open-conversation-and-wait` → 审阅对话 → `reply-and-verify`。业务入口已经完成的等待、登记和核验不要再手动重复。附件分享按 runtime 的原生确认流程。
