@@ -23,21 +23,16 @@ Works with **Codex, Claude Code and compatible Agent Skills hosts**. Live browse
 
 ## What Jev does
 
-[Jev](https://docs.typesafe.ai/) is TypeSafe's System One model for typed decisions and probabilities. Jev4JobHunter uses it at two semantic decision points:
+[Jev](https://docs.typesafe.ai/) evaluates a whole batch of complete job descriptions in one call, with one boolean per job: is it worth initiating contact? Accepted jobs enter the authorized queue directly. The host checks the full policy during recruiter conversations and explains relevant, factual experience.
 
-| Step | Jev judgment | What happens next |
-|---|---|---|
-| List screening | Which roles deserve a closer look | The agent reads candidate job descriptions |
-| Detail review | `apply` / `skipped` / `deferred`, plus eligibility | Facts, rules and authorization determine outreach, skipping or further review |
-
-Code handles explicit filters such as salary, city and experience. The host writes messages; the plugin executes browser steps through Kimi. The host calls Jev directly using the official TypeSafe Skill. Without a key or when the service is unavailable, the host performs the judgment and records its source.
+Code enforces explicit exclusions, deduplication, authorization and platform restrictions. Browser actions use Kimi. The [Android adapter](skills/job-hunter/references/android.md) uses ADB for UI actions and passively captures their existing responses; it never calls or replays recruiting APIs. A calibrated gesture is reused for loading. List summaries are never treated as complete JDs.
 
 ### Small judgments inside a complete workflow
 
 ```text
 Your preferences + current jobs
                ↓
-Rule filters → Jev: worth reading? eligible?
+Complete JD batch → Jev: worth contacting?
                ↓
 Agent: read the JD, explain the match, prepare outreach
                ↓
@@ -74,7 +69,7 @@ Before the first browser task, open the [Kimi Browser Extension / Kimi WebBridge
 
 ### Enable Jev (optional)
 
-Install the [official TypeSafe Skill](https://github.com/typesafe-ai/skills) using one method for your host.
+The built-in Jev runner requires an API key. For maintaining or extending judgments, optionally install the [official TypeSafe Skill](https://github.com/typesafe-ai/skills) using one method for your host.
 
 **Codex:**
 
@@ -101,7 +96,7 @@ Start with:
 
 ![Technical architecture: Agent and Skill, guarded Python runtime, Kimi WebBridge, BOSS website, personal context and durable local state](docs/media/architecture.en.svg)
 
-The diagram shows the base execution path. Jev is an optional judgment service called by the host through the official TypeSafe Skill. The host reasons using Jev4JobHunter; `browser_actions.py` routes individual steps through policy and browsing checks, a BOSS DOM adapter and `webbridge_client.py`. `store.py` persists checkpoints, deduplication and receipts.
+The diagram shows the base execution path. The optional `jev.py` runner batches typed questions over stored evidence and rejects stale results. The host reasons using Jev4JobHunter; `browser_actions.py` routes business steps through policy and browsing checks, a BOSS DOM adapter and `webbridge_client.py`. `store.py` persists checkpoints, deduplication and receipts.
 
 Personal facts (`profile.md`), strategy and authorization (`policy.json`), and progress (`state.json`) live in a local data directory. Release packages exclude personal resumes, chats and application records. Preserve that directory during upgrades.
 
@@ -112,6 +107,7 @@ Personal facts (`profile.md`), strategy and authorization (`policy.json`), and p
 | BOSS 直聘 / BOSS Zhipin | Filters, visible lists, detail groups and platform-default greetings through the guarded entry |
 | Other job sites | Analyze supplied material; site-by-site browser execution is not yet adapted and verified |
 | Normal replies and platform resume sharing | Wired into the entry; live replies and share requests verified. Final attachment delivery still requires an explicit receipt after recipient consent |
+| Android response capture | Lists and full JDs verified on an unrooted phone with the official app; fixed gesture reuse. Mobile send receipts still need live validation |
 | Custom first greetings | Drafting supported; new conversations use the platform-default greeting |
 | Scheduled runs | Depend on the host scheduler, computer and browser availability |
 

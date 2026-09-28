@@ -173,7 +173,7 @@ def check_target(policy: dict, state: dict, request: dict, *, require_complete: 
         publishers = {s.get('publisherType', 'unknown') for s in sources}
         if 'headhunter' in publishers:
             raise PolicyError('excluded-headhunter-posted')
-        if require_complete and (facts.get('publisherType') != 'direct' or not facts.get('evidence')):
+        if require_complete and request['kind'] == 'share_resume' and (facts.get('publisherType') != 'direct' or not facts.get('evidence')):
             raise PolicyError('publisher-unverified:read-page-before-submitting')
     groups = {normalized(s['opportunityGroup']) for s in sources if s.get('opportunityGroup')}
     for group in search.get('excludedOpportunityGroups', []):

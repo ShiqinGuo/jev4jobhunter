@@ -24,11 +24,11 @@ const identity = root => {
 const rows = () => shown('.friend-content').map(el => ({el,
   identity: identity(el.querySelector('.name-box')), preview:text(el.querySelector('.last-msg-text'))}));
 const recipient = () => {
-  const selected = unique(rows().filter(r => r.el.classList.contains('selected')));
+  const selected = unique(shown('.friend-content.selected'));
   const header = identity(unique(shown('.user-info .base-info')));
-  return selected && header && JSON.stringify(selected.identity) === JSON.stringify(header) ? header : null;
+  return selected && header && JSON.stringify(identity(selected.querySelector('.name-box'))) === JSON.stringify(header) ? header : null;
 };
-const messages = () => shown('.im-list .message-item').map(el => ({
+const messages = (baseline = new Set()) => shown('.im-list .message-item').filter(el => !baseline.has(el.getAttribute('data-mid'))).map(el => ({
   id:el.getAttribute('data-mid'), direction:el.classList.contains('item-myself') ? 'out' :
     el.classList.contains('item-friend') ? 'in' : 'system',
   text:text(el.querySelector('.text-content')), body:text(el),
@@ -46,20 +46,21 @@ const resumePanels = () => shown('.panel-resume, .dialog-wrap, [role="dialog"]')
 '''
 
 
-def observation_script():
-    return '(() => {' + DOM + r'''
-return JSON.stringify({url:currentURL.origin+currentURL.pathname, fullUrl:currentURL.href, accountLabel:accountLabel(), visibility:document.visibilityState,
- body:text(document.body), controls:shown('#chat-input').map(el=>({id:'chat-input'})),
- chat:{recipient:recipient(), rows:rows().map(r=>({recipient:r.identity,preview:r.preview})),
- messages:messages(), job:text(unique(shown('.position-content'))),
+def observation_script(baseline_ids=None):
+    receipt = baseline_ids is not None
+    return '(() => {' + DOM + '\nconst baseline=new Set(' + json.dumps(baseline_ids or []) + ');' + r'''
+const panels=resumePanels();
+const chat={recipient:recipient(), messages:messages(baseline),
+ resumeConfirmation:panels.length===1, resumeConfirmationStage:unique(panels)?.stage || null,
+ resumeWaiting:shown('.chat-controls .toolbar-btn[d-c="62009"]').some(el=>el.getAttribute('aria-label')==='正在请求中，等待对方回复')};
+''' + ('' if receipt else r'''
+Object.assign(chat, {rows:rows().map(r=>({recipient:r.identity,preview:r.preview})),
+ job:text(unique(shown('.position-content'))),
  jobControls:shown('.position-content a, .position-content button, .position-content span').map(el=>({tag:el.tagName,classes:el.className,text:text(el),href:el.getAttribute('href')})),
  editor:text(unique(shown('#chat-input'))),
  resumeRequests:resumeRequests().filter(r=>r.id&&r.buttons.length===1).map(r=>({id:r.id,body:text(r.el)})),
- resumeConfirmation:resumePanels().length===1,
- resumeConfirmationStage:unique(resumePanels())?.stage || null,
- resumeWaiting:shown('.chat-controls .toolbar-btn[d-c="62009"]').some(el=>el.getAttribute('aria-label')==='正在请求中，等待对方回复'),
- dialogs:shown('.dialog-wrap, [role="dialog"], .panel-resume').map(el=>text(el))}});
-})()'''
+ dialogs:shown('.dialog-wrap, [role="dialog"], .panel-resume').map(el=>text(el))});
+''') + "return JSON.stringify({...pageInfo(), chat});})()"
 
 
 def action_script(operation, args):
@@ -109,9 +110,9 @@ button.click();return JSON.stringify({status:'clicked'});
 '''))))) + '})()'
 
 
-def inspect(engine):
+def inspect(engine, baseline_ids=None):
     engine.safety._state()
-    return engine.safety.observe(engine._call(observation_script(), read_only=True))
+    return engine.safety.observe(engine._call(observation_script(baseline_ids), read_only=True))
 
 
 def verify(engine, observed, recipient=None):
@@ -224,7 +225,7 @@ def reconcile(engine, action, observed=None):
         return {'id':action['id'], 'status':action['status'], 'unchanged':True}
     if not action.get('chatAttempted'):
         return {'id':action['id'], 'status':action['status'], 'nextAction':'send-chat', 'submissionAttempted':False}
-    observed = observed or inspect(engine)
+    observed = observed or inspect(engine, action['chatContext']['baselineIds'])
     page = verify(engine, observed, action['chatContext']['recipient'])
     store.check_account_context(store.load_state(engine.safety.root),action)
     if page['accountLabel'] != action.get('accountLabel'):
@@ -270,8 +271,7 @@ def reconcile(engine, action, observed=None):
 
 def resume_observation_script():
     return '(() => {' + boss_page._DOM + r'''
-return JSON.stringify({url:currentURL.origin+currentURL.pathname, fullUrl:currentURL.href, accountLabel:accountLabel(),
-body:text(document.body), controls:[], filenames:shown('.basis a[title]').map(el=>el.getAttribute('title')).filter(s=>/\.(pdf|docx?)$/i.test(s))});})()'''
+return JSON.stringify({...pageInfo(), filenames:shown('.basis a[title]').map(el=>el.getAttribute('title')).filter(s=>/\.(pdf|docx?)$/i.test(s))});})()'''
 
 
 def execute(engine, operation, data, *, observed=None, defer_receipt=False):

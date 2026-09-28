@@ -27,7 +27,7 @@ return c?.recipient?.name===args.recipient.name && c.recipient.company===args.re
 
 def wait_receipt(engine, action, timeout):
     # Match only the prepared reply or explicit attachment receipt/request. No sends.
-    result=condition_wait.observe(engine,boss_chat.observation_script(),r'''
+    result=condition_wait.observe(engine,boss_chat.observation_script(action['chatContext']['baselineIds']),r'''
 const c=page.chat;
 if(page.url!=='https://www.zhipin.com/web/geek/chat'||page.accountLabel!==args.accountLabel||
    c?.recipient?.name!==args.chatContext.recipient.name||c.recipient.company!==args.chatContext.recipient.company) return false;
@@ -37,7 +37,7 @@ const receipts=args.kind==='reply' ? fresh.filter(m=>m.direction==='out'&&m.text
 return receipts.length ? receipts.map(m=>m.id) : (c.resumeWaiting || args.deliveryState==='awaiting-recipient-consent' ? 'waiting-consent' : false);
 ''',action,timeout)
     settled=boss_chat.reconcile(engine,action,observed=result['observation'])
-    return {**settled,'observation':result['observation'],'observations':result['observations'],
+    return {**settled,'observation':result['observation'],
             'polls':result['polls'],'nextAction':'none' if settled['status']=='succeeded' else 'reconcile-chat'}
 
 
@@ -75,13 +75,14 @@ def execute(engine,operation,data):
     if operation=='open-detail-and-wait':
         if set(data)-{'key','waitMs'}:
             raise store.StoreError('candidate-key-and-wait-only')
-        step=engine.execute('open-detail',{'key':data['key']})
-        if step.get('status')=='unsupported':
-            return step
-        wait=condition_wait.observe(engine,boss_page.observation_script(),r'''
+        step=engine._page_step('open-detail',{'key':data['key']}, after=lambda: condition_wait.observe(
+            engine,boss_page.observation_script('detail'),r'''
 return page.accountLabel===args.account && page.detail?.key===args.key && !page.detail.loading && page.detail.text ?
   [page.detail.key,page.detail.text] : false;
-''',{'key':data['key'],'account':expected_account(engine)},timeout)
+''',{'key':data['key'],'account':expected_account(engine)},timeout))
+        if step.get('status')=='unsupported':
+            return step
+        wait={k:v for k,v in step.items() if k!='step'}
         if wait['ready']:
             engine.safety._verify(engine.safety.status()['flow'],wait['observation']['page'])
         return {'status':'ready' if wait['ready'] else 'pending',**wait,'nextAction':'model-review-detail' if wait['ready'] else 'inspect'}

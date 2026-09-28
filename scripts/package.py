@@ -22,6 +22,11 @@ def package(root: Path, output: Path) -> dict:
     files.append(skill / 'SKILL.md')
     for directory, suffix in [('references', '.md'), ('scripts', '.py'), ('agents', '.yaml')]:
         files.extend(p for p in (skill / directory).glob('*' + suffix) if p.is_file())
+    files.extend((skill / 'scripts').glob('android-requirements.txt'))
+    interface = json.loads((root / '.codex-plugin/plugin.json').read_text(encoding='utf-8')).get('interface', {})
+    for field in ('composerIcon', 'logo', 'logoDark'):
+        if interface.get(field):
+            files.append(root / interface[field])
     files.extend(p for p in (root / 'commands').glob('*.md') if p.is_file())
     files.extend(p for p in (root / 'tests').glob('test_*.py') if p.is_file())
     forbidden = {'state.json', 'policy.json', 'profile.md', 'android-device.json', 'automation-guide.md'}

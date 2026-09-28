@@ -62,21 +62,23 @@ const jobURL = href => {
     return bossOrigin(url) && match ? {key: 'boss:' + match[1], url: safeURL(url)} : null;
   } catch (_) { return null; }
 };
-const cardRows = () => shown('.job-card-wrap').map(el => {
+const cardRows = (material = true) => shown('.job-card-wrap').map(el => {
   const link = unique(shown('a.job-name[href]', el));
   const identity = link && jobURL(link.getAttribute('href'));
   if (!identity) return null;
-  const value = text(el), lines = value.split(/\n+/).map(s => s.trim()).filter(Boolean);
-  const exps = lines.filter(experienceLabel);
-  const location = unique(shown('.job-card-footer .company-location', el));
-  const cityMatch = location ? /^([\u4e00-\u9fff]{2,12})(?:·|$)/.exec(text(location)) : null;
   const namedCompany = unique(shown('.company-name, .job-card-footer a.boss-info span.boss-name', el));
+  const value = material || !namedCompany ? text(el) : '';
+  const lines = value.split(/\n+/).map(s => s.trim()).filter(Boolean);
   // The six-line card shape is present in the supplied captured DOM text.
   // Do not assume a company position if that complete shape no longer matches.
   const compactCompany = lines.length === 6 && experienceLabel(lines[2]) &&
     /^(?:本科|大专|硕士|博士|学历不限|高中|中专\/中技)$/.test(lines[3]) &&
     /^[^·\s]{2,12}·/.test(lines[5]) ? lines[4] : null;
   const company = namedCompany ? text(namedCompany) : compactCompany;
+  if (!material) return {el, link, company, jobTitle:text(link), key:identity.key};
+  const exps = lines.filter(experienceLabel);
+  const location = unique(shown('.job-card-footer .company-location', el));
+  const cityMatch = location ? /^([\u4e00-\u9fff]{2,12})(?:·|$)/.exec(text(location)) : null;
   return {el, link, company, jobTitle: text(link), key: identity.key,
     data: {...identity, text: value, company, city: cityMatch ? cityMatch[1] : null,
       experience: exps.length === 1 ? exps[0] : null,
@@ -225,80 +227,74 @@ const scrollTarget = () => {
   const el = document.scrollingElement;
   return el && el.clientHeight > 0 && el.scrollHeight > el.clientHeight ? el : null;
 };
-// Bounded diagnostics for the scroll step: which ancestor of the card list
-// actually scrolls, and whether the cards live inside it. Diagnostics only;
-// no decision reads this. Keep the row count small so evidence stays readable.
-const scrollChain = () => {
-  const rows = [];
-  for (let el = listRoot(); el && el !== document.documentElement && el !== document.body; el = el.parentElement) {
-    const style = getComputedStyle(el);
-    rows.push({tag: el.tagName.toLowerCase(), cls: String(el.className || '').slice(0, 48),
-      overflowY: style.overflowY, ch: Math.round(el.clientHeight), sh: Math.round(el.scrollHeight),
-      top: Math.round(el.scrollTop),
-      scrolls: /(auto|scroll)/.test(style.overflowY) && el.clientHeight > 0 && el.scrollHeight > el.clientHeight});
-    if (rows.length >= 5) break;
-  }
-  const de = document.scrollingElement;
-  if (de) {
-    const style = getComputedStyle(de);
-    rows.push({tag: de.tagName.toLowerCase(), cls: String(de.className || '').slice(0, 48),
-      overflowY: style.overflowY, ch: Math.round(de.clientHeight), sh: Math.round(de.scrollHeight),
-      top: Math.round(de.scrollTop), scrolls: de.clientHeight > 0 && de.scrollHeight > de.clientHeight});
-  }
-  return rows;
-};
 const accountLabel = () => {
   const labels = shown('.nav-figure .label, .nav-figure .username, .nav-figure .user-name, .nav-figure a[ka="header-username"] .label-text')
     .map(text).filter(s => s && !/登录|注册|消息|简历/.test(s));
   return unique([...new Set(labels)]);
 };
-const loading = () => {
+// Prune business material before reading text; dialogs are checked separately
+// so an alert nested in a job/chat panel still wins over the loaded content.
+const statusText = () => {
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode: node => node.nodeType === 1 ?
+      (node.matches('script,style,template,.job-card-wrap,.job-detail-container,.im-list,.friend-content,#chat-input,.position-content') || !visible(node)
+        ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP) : NodeFilter.FILTER_ACCEPT
+  });
+  const parts = []; let node;
+  while ((node = walker.nextNode())) if (node.textContent.trim()) parts.push(node.textContent.trim());
+  for (const dialog of shown('[role="alert"], [role="dialog"], .dialog-wrap, .dialog-container, .greet-boss-container'))
+    if (dialog.closest('.job-card-wrap,.job-detail-container,.im-list,.friend-content')) parts.push(text(dialog));
+  return parts.join('\n');
+};
+const pageInfo = () => ({url:safeURL(currentURL), fullUrl:currentURL.href, visibility:document.visibilityState,
+  body:statusText(), accountLabel:onBoss ? accountLabel() : null});
+const loading = (body = statusText()) => {
   const root = listRoot();
   return !!(root && (root.getAttribute('aria-busy') === 'true' ||
     shown('[aria-busy="true"], .loading, .loading-text', root).some(el =>
       el.getAttribute('aria-busy') === 'true' || /加载/.test(text(el))))) ||
-    /^加载中[，,]?\s*请稍候[.。…]*$/.test(text(document.body));
+    /^加载中[，,]?\s*请稍候[.。…]*$/.test(body);
 };
-const endOfList = () => {
+const endOfList = busy => {
   const root = listRoot();
-  return !!root && !loading() && shown('*', root).some(el => !el.closest('.job-card-wrap') &&
+  return !!root && !busy && shown('*', root).some(el => !el.closest('.job-card-wrap') &&
     /^(?:没有更多了|没有更多职位了|已加载全部职位|暂无符合条件的职位|没有找到相关职位)[。！!]*$/.test(text(el)));
 };
 const unsupported = reason => ({status: 'unsupported', operation, reason});
 """
 
 
-def observation_script() -> str:
-    """Return a DOM-only JSON observation; null/empty facts remain unknown."""
+def observation_script(scope='list') -> str:
+    """Read only the operation's material, with shared account/filter/status checks."""
+    if scope not in ('list','detail','receipt'):
+        raise ValueError('unknown-observation-scope')
     return "(() => {\n" + _DOM + r"""
-const cards = onBoss ? cardRows() : [];
-const detail = onBoss ? detailRow(cards) : null;
-const controls = onBoss ? controlRows() : [];
-const keyword = unique(controls.filter(c => c.data.kind === 'keyword'));
+const page = pageInfo();
+const keyword = onBoss ? unique(shown('input[placeholder="搜索职位、公司"]')) : null;
 const city = onBoss ? unique(shown('.cur-city-label')) : null;
-const scroller = onBoss ? scrollTarget() : null;
-const tail = cards.length ? cards[cards.length - 1].el : null;
-const viewportBottom = scroller === document.scrollingElement ? innerHeight :
-  (scroller ? Math.min(innerHeight, scroller.getBoundingClientRect().bottom) : 0);
-const listTailBelowViewport = !!(scroller && tail &&
-  scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 1 &&
-  tail.getBoundingClientRect().bottom > viewportBottom + 1);
-const filters = {city: city ? text(city) : null, keyword: keyword ? keyword.el.value : null,
+const filters = {city: city ? text(city) : null, keyword: keyword ? keyword.value : null,
   experience: onBoss ? selectedExperience() : [], degree: onBoss ? selectedDegree() : []};
 if (onBoss && (all('li[ka^="sel-job-rec-salary-"]').length ||
     shown('.condition-filter-select .current-select').some(el => currentFilter(el) === 'salary')))
   filters.salary = selectedSalary();
-return JSON.stringify({url: safeURL(currentURL), title: document.title,
-  fullUrl: currentURL.href,
-  visibility: document.visibilityState,
-  body: text(document.body), accountLabel: onBoss ? accountLabel() : null,
-  filters,
-  cards: cards.map(c => c.data), detail: detail ? detail.data : null,
-  controls: controls.map(c => c.data), scrollable: onBoss && !!scrollTarget(),
-  scrollChain: onBoss ? scrollChain() : [],
-  endOfList: onBoss && endOfList(), loading: onBoss && loading(), listTailBelowViewport,
+page.filters = filters;
+page.loading = onBoss && loading(page.body);
+""" + (r"""
+const cards = onBoss ? cardRows() : [];
+const scroller = onBoss ? scrollTarget() : null;
+const tail = cards.length ? cards[cards.length - 1].el : null;
+const viewportBottom = scroller === document.scrollingElement ? innerHeight :
+  (scroller ? Math.min(innerHeight, scroller.getBoundingClientRect().bottom) : 0);
+return JSON.stringify({...page, cards:cards.map(c => c.data), controls:onBoss ? controlRows().map(c => c.data) : [],
+  scrollable:!!scroller, endOfList:onBoss && endOfList(page.loading),
+  listTailBelowViewport:!!(scroller && tail && scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 1 &&
+    tail.getBoundingClientRect().bottom > viewportBottom + 1),
   scrollRemaining: scroller ? Math.max(0, scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop) : 0});
-})()"""
+""" if scope=='list' else r"""
+const detail = onBoss ? detailRow(cardRows(false))?.data : null;
+if (detail && /登录查看完整内容|登录后查看|验证后继续/.test(detail.text)) page.body += '\n登录查看完整内容';
+""" + ("if (detail) delete detail.text;\n" if scope=='receipt' else '') +
+"return JSON.stringify({...page, detail});\n") + "})()"
 
 
 def action_script(operation: str, args: dict | None = None) -> str:
@@ -359,7 +355,7 @@ const run = () => {
     return {status: 'clicked', operation, id: args.id};
   }
   if (operation === 'open-detail') {
-    const card = unique(cardRows().filter(row => row.key === args.key));
+    const card = unique(cardRows(false).filter(row => row.key === args.key));
     if (!card || !enabled(card.link)) return unsupported('job-card-missing-or-ambiguous');
     card.link.click();
     return {status: 'clicked', operation, key: args.key};
@@ -371,14 +367,14 @@ const run = () => {
     return {status: 'scrolled', operation};
   }
   if (operation === 'submit') {
-    const cards = cardRows(), detail = detailRow(cards);
+    const cards = cardRows(false), detail = detailRow(cards);
     if (!detail || detail.data.key !== args.key) return unsupported('detail-identity-not-proven');
     if (loading() || /登录查看完整内容|登录后查看|验证后继续/.test(detail.data.text))
       return unsupported('detail-incomplete-or-loading');
     if (!detail.button || !enabled(detail.button) || text(detail.button) !== '立即沟通')
       return unsupported('immediate-chat-button-unavailable');
     // Existing receipts/dialogs must be observed and reconciled separately.
-    if (/已向BOSS发送消息/.test(text(document.body)) ||
+    if (/已向BOSS发送消息/.test(statusText()) ||
         shown('[role="dialog"][aria-modal="true"]').length) return unsupported('dialog-or-receipt-present');
     detail.button.click();
     return {status: 'clicked', operation, key: args.key};
@@ -401,7 +397,7 @@ const run = () => {
     return {status: 'clicked', operation};
   }
   if (operation === 'dismiss-receipt') {
-    if (!/已向BOSS发送消息/.test(text(document.body))) return unsupported('receipt-not-present');
+    if (!/已向BOSS发送消息/.test(statusText())) return unsupported('receipt-not-present');
     const button = unique(shown('a.default-btn.cancel-btn').filter(el => {
       const dialog = el.closest('[role="dialog"], .dialog-container, .dialog-wrap, .dialog, .greet-boss-container');
       return text(el) === '留在此页' && dialog && /已向BOSS发送消息/.test(text(dialog));

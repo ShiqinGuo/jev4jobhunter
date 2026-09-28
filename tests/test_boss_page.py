@@ -135,7 +135,7 @@ class OfflineDOMTests(unittest.TestCase):
         self.assertEqual(output['network'], [], 'fixture must make no network requests')
         return output
 
-    def test_observation_keeps_all_body_and_only_selected_experience(self):
+    def test_list_reads_cards_and_selected_filters_without_detail(self):
         output = self.run_dom([boss_page.observation_script()], html=fixture('<p>' + '长正文' * 5000 + '末尾证据</p>'))
         value = output['values'][0]
         self.assertEqual(value['filters'], {'city': '杭州', 'keyword': 'Python', 'experience': ['应届生', '1-3年'], 'degree': []})
@@ -149,7 +149,7 @@ class OfflineDOMTests(unittest.TestCase):
         self.assertEqual(value['cards'][0]['city'], '杭州')
         self.assertEqual(value['cards'][1]['publisherType'], 'headhunter')
         self.assertNotIn('securityId', value['url'] + value['cards'][0]['url'])
-        self.assertEqual(value['detail']['key'], 'boss:job_one')
+        self.assertNotIn('detail',value)
         self.assertEqual(output['calls'], [])
 
     def test_observation_reads_selected_salary_filter(self):
@@ -245,13 +245,30 @@ class OfflineDOMTests(unittest.TestCase):
                           and c['label'] == '工作经验')
         self.assertNotIn('interaction', hover_menu)
 
-    def test_scroll_chain_is_bounded_and_names_the_actual_scroller(self):
-        value = self.run_dom([boss_page.observation_script()])['values'][0]
-        chain = value['scrollChain']
-        self.assertEqual(chain[0]['cls'], 'job-list-container')
-        self.assertTrue(chain[0]['scrolls'])
-        self.assertLessEqual(len(chain), 6)
-        self.assertTrue(all(set(row) == {'tag', 'cls', 'overflowY', 'ch', 'sh', 'top', 'scrolls'} for row in chain))
+    def test_scoped_reads_keep_identity_and_nested_alert_without_duplicate_material(self):
+        html=fixture().replace('业务接口与数据库开发。','访问受限研究。' + '长正文' * 5000)
+        before="document.querySelector('#detail').insertAdjacentHTML('beforeend','<div role=alert>请完成安全验证</div>')"
+        values=self.run_dom([boss_page.observation_script(scope) for scope in ('list','detail','receipt')],html=html,before=before)['values']
+        for value in values:
+            self.assertIn('请完成安全验证',value['body'])
+            self.assertNotIn('长正文',value['body'])
+            self.assertNotIn('访问受限研究',value['body'])
+            self.assertNotIn('scrollChain',value)
+        listing,detail,receipt=values
+        self.assertTrue(listing['scrollable'])
+        self.assertNotIn('detail',listing)
+        self.assertNotIn('cards',detail)
+        self.assertNotIn('controls',detail)
+        self.assertIn('长正文',detail['detail']['text'])
+        self.assertEqual(detail['detail']['key'],'boss:job_one')
+        self.assertEqual(receipt['detail']['key'],'boss:job_one')
+        self.assertNotIn('text',receipt['detail'])
+
+    def test_scopes_do_not_extract_unneeded_dom_text(self):
+        for scope,selector in [('list','#detail'),('detail','.job-card-wrap')]:
+            before="for(const el of document.querySelectorAll('"+selector+"')) Object.defineProperty(el,'innerText',{get(){throw new Error('unneeded material read')}})"
+            result=self.run_dom([boss_page.observation_script(scope)],before=before)['values'][0]
+            self.assertEqual(result['accountLabel'],'测试候选人')
 
     def test_live_footer_company_name_is_scoped_to_its_card(self):
         html = fixture('<span class="boss-name">页面外无关公司</span>').replace(
@@ -375,7 +392,7 @@ class OfflineDOMTests(unittest.TestCase):
         duplicate = """const card=document.querySelector('#card-one').cloneNode(true);
         card.classList.remove('active');card.querySelector('a').setAttribute('href','/job_detail/other_job.html');
         document.querySelector('#jobs').append(card);"""
-        result = self.run_dom([boss_page.observation_script(), boss_page.action_script('submit', {'key': 'boss:job_one'})], before=duplicate)
+        result = self.run_dom([boss_page.observation_script('detail'), boss_page.action_script('submit', {'key': 'boss:job_one'})], before=duplicate)
         self.assertIsNone(result['values'][0]['detail']['key'])
         self.assertEqual(result['values'][1]['status'], 'unsupported')
         self.assertEqual(result['calls'], [])

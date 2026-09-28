@@ -50,7 +50,7 @@ def classify(page: dict) -> str:
     if '/passport/zp/403' in url:
         return 'access-restricted'
     normal = bool(page.get('cards') or page.get('detail') or page.get('controls') or
-                  (page.get('chat') or {}).get('rows') or page.get('filenames'))
+                  (page.get('chat') or {}).get('rows') or (page.get('chat') or {}).get('recipient') or page.get('filenames'))
     if '安全检查' in body and not normal:
         return 'security-check'
     if ('登录' in body and not page.get('accountLabel') and not normal) or '登录查看完整内容' in body:
@@ -252,7 +252,7 @@ class Safety:
         return not flow['activeKey'] and not flow['pending'] and all(
             flow['candidates'][key]['decision'] in TERMINAL for key in (flow.get('batch') or {}).get('keys', []))
 
-    def observe(self, page: dict) -> dict:
+    def observe(self, page: dict, *, wait=None) -> dict:
         """Save passive evidence; never clear an existing restriction or change batches."""
         classification = classify(page)
         with store.transaction(self.root):
@@ -261,7 +261,8 @@ class Safety:
             log.mkdir(parents=True, exist_ok=True)
             relative = 'logs/browsing/' + uuid.uuid4().hex + '.json'
             store.write_json(self.root / relative, {'at': store.stamp(), 'session': self.session,
-                                                    'classification': classification, 'page': page})
+                                                    'classification': classification, 'page': page,
+                                                    **({'wait':wait} if wait is not None else {})})
             flow['lastObservation'] = {'path': relative, 'at': store.stamp(),
                                        'classification': classification, 'session': self.session,
                                        'runTokenHash': store.fingerprint(self.token)}
@@ -299,7 +300,7 @@ class Safety:
                 if self._identity_matches(flow, page):
                     pending = flow.get('pending') or {}
                     detail = page.get('detail') or {}
-                    if pending.get('operation') == 'open-detail' and detail.get('key') == flow['activeKey']:
+                    if pending.get('operation') == 'open-detail' and detail.get('key') == flow['activeKey'] and detail.get('text'):
                         flow['candidates'][flow['activeKey']]['detail'] = {**detail, 'evidence': relative,
                             'profileFingerprint': flow.get('profileFingerprint'),
                             'policyFingerprint': flow.get('policyFingerprint')}
@@ -497,6 +498,8 @@ class Safety:
                 return {'waiting': True, 'reason': 'no-new-ids-yet', 'mayScroll': False,
                         'exhaustionVerified': False, 'nextAction': 'observe-current-query'}
             keys = []
+            policy = store.load_policy(self.root)
+            held = {a.get('targetKey') for a in state['actions'].values() if a.get('status') in store.HELD}
             for card in cards:
                 key = card['key']
                 if not key.startswith(self.platform + ':') or key in keys:
@@ -506,7 +509,7 @@ class Safety:
                     # Repeated first pages after a new keyword form a settled
                     # batch. Preserve their old decisions and allow one scroll.
                     continue
-                reason = self._list_exclusion(state, card)
+                reason = self._list_exclusion(state, card, policy=policy, held=held)
                 flow['candidates'][key] = {'card': card, 'decision': 'skipped' if reason else 'unreviewed',
                                             'evidence': reason or '', 'listEvidence': flow['lastObservation']['path'],
                                             'profileFingerprint': flow['profileFingerprint'],
@@ -520,16 +523,18 @@ class Safety:
             return {'batch': flow['batch'], 'candidates': {k: flow['candidates'][k] for k in keys},
                     'retainedUnfinished':flow.get('backlog', [])}
 
-    def _list_exclusion(self, state: dict, card: dict) -> str:
+    def _list_exclusion(self, state: dict, card: dict, *, policy=None, held=None) -> str:
         key = card['key']
         flow = self._flow(state)
         if card.get('city') and card['city'] != flow['query']['city']:
             return 'wrong-city'
-        if any(a.get('targetKey') == key and a.get('status') in store.HELD for a in state['actions'].values()):
+        if held is None:
+            held = {a.get('targetKey') for a in state['actions'].values() if a.get('status') in store.HELD}
+        if key in held:
             return 'already-contacted-or-unresolved'
         if state['jobs'].get(key, {}).get('legacyContacted'):
             return 'legacy-contact-requires-reconciliation'
-        policy = store.load_policy(self.root)
+        policy = policy if policy is not None else store.load_policy(self.root)
         experience = policy.get('search', {}).get('experienceFilter', {})
         if experience.get('enabled') and card.get('experience') in experience.get('excludedLabels', []):
             return 'excluded-experience-label'
@@ -541,23 +546,46 @@ class Safety:
         return ''
 
     def screen(self, data: dict) -> dict:
-        key, decision = store.required_string(data, 'key'), data.get('decision')
-        evidence = store.required_string(data, 'evidence')
-        if decision not in ('shortlisted', 'skipped', 'deferred'):
-            raise store.StoreError('invalid-list-decision')
+        return self._screen_reviews([data])['decisions'][0]
+
+    def screen_many(self, data: dict) -> dict:
+        if set(data) != {'batchId','reviews'}:
+            raise store.StoreError('batch-id-and-reviews-required')
+        return self._screen_reviews(data['reviews'], store.required_string(data,'batchId'))
+
+    def _screen_reviews(self, reviews, batch_id=None):
+        if not isinstance(reviews,list) or not reviews or any(not isinstance(r,dict) for r in reviews):
+            raise store.StoreError('nonempty-list-reviews-required')
+        keys=[store.required_string(r,'key') for r in reviews]
+        if len(set(keys))!=len(keys):
+            raise store.StoreError('duplicate-list-review')
         with store.transaction(self.root):
             state, flow = self._state()
-            if key not in (flow.get('batch') or {}).get('keys', []):
-                raise store.StoreError('candidate-not-in-current-batch')
-            candidate = flow['candidates'][key]
-            can_defer_shortlist = candidate['decision'] == 'shortlisted' and decision in ('skipped', 'deferred') and key != flow['activeKey']
-            if candidate['decision'] != 'unreviewed' and not can_defer_shortlist:
-                raise store.StoreError('list-decision-already-recorded')
-            if decision == 'shortlisted' and self._list_exclusion(state, candidate['card']):
-                raise store.StoreError('candidate-excluded')
-            candidate.update(decision=decision, evidence=evidence)
+            batch=flow.get('batch') or {}
+            if batch_id is not None and batch_id!=batch.get('id'):
+                raise store.StoreError('list-batch-changed')
+            if batch_id is not None:
+                self._verify(flow,self._last_page(flow))
+            policy=store.load_policy(self.root)
+            held={a.get('targetKey') for a in state['actions'].values() if a.get('status') in store.HELD}
+            # Validate the entire batch before changing anything, including on disk.
+            for review in reviews:
+                key,decision=review['key'],review.get('decision')
+                store.required_string(review,'evidence')
+                if decision not in ('shortlisted','skipped','deferred'):
+                    raise store.StoreError('invalid-list-decision')
+                if key not in batch.get('keys',[]):
+                    raise store.StoreError('candidate-not-in-current-batch')
+                candidate=flow['candidates'][key]
+                can_defer=candidate['decision']=='shortlisted' and decision in ('skipped','deferred') and key!=flow['activeKey']
+                if candidate['decision']!='unreviewed' and not can_defer:
+                    raise store.StoreError('list-decision-already-recorded')
+                if decision=='shortlisted' and self._list_exclusion(state,candidate['card'],policy=policy,held=held):
+                    raise store.StoreError('candidate-excluded')
+            for review in reviews:
+                flow['candidates'][review['key']].update(decision=review['decision'],evidence=review['evidence'])
             self._save(state)
-            return {'key': key, 'decision': decision}
+            return {'batchId':batch.get('id'),'decisions':[{k:r[k] for k in ('key','decision')} for r in reviews]}
 
     def reserve(self, operation: str, args: dict) -> dict:
         """Persist intent before exactly one UI action; no loops and no blind retry."""
@@ -671,11 +699,8 @@ class Safety:
                 raise store.StoreError('loaded-active-detail-required')
             candidate = flow['candidates'][key]
             if decision == 'apply':
-                if data.get('eligibilityPassed') is not True:
-                    raise store.StoreError('formal-tenure-and-jd-eligibility-review-required')
                 self._verify(flow, self._last_page(flow))
             candidate.update(decision=decision, reviewEvidence=evidence,
-                             eligibilityPassed=data.get('eligibilityPassed') is True,
                              reviewedProfileFingerprint=flow.get('profileFingerprint'),
                              reviewedPolicyFingerprint=flow.get('policyFingerprint'))
             if decision != 'apply':

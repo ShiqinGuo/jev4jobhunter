@@ -180,6 +180,20 @@ class ChatDOMTests(unittest.TestCase):
     setUpClass=classmethod(dom_fixture.OfflineDOMTests.setUpClass.__func__)
     run_dom=dom_fixture.OfflineDOMTests.run_dom
 
+    def test_receipt_reads_only_new_messages_and_keeps_recipient_identity(self):
+        html='''<div class="nav-figure"><span class="label">Candidate</span></div>
+        <div class="friend-content selected"><div class="name-box"><span class="name-text">HR</span><span>Company</span></div></div>
+        <div class="user-info"><div class="base-info"><span class="name-text">HR</span><span>Company</span></div></div>
+        <ul class="im-list"><li class="message-item item-friend" data-mid="old">old full conversation</li>
+        <li class="message-item item-myself" data-mid="new"><span class="text-content">new reply</span><span class="message-status">已读</span></li></ul>'''
+        before="Object.defineProperty(document.querySelector('[data-mid=old]'),'innerText',{get(){throw new Error('old message was read')}})"
+        result=self.run_dom([boss_chat.observation_script(['old'])],html=html,before=before,url='https://www.zhipin.com/web/geek/chat')['values'][0]
+        self.assertEqual(result['chat']['recipient'],{'name':'HR','company':'Company'})
+        self.assertEqual([m['id'] for m in result['chat']['messages']],['new'])
+        self.assertTrue(result['chat']['messages'][0]['delivered'])
+        self.assertNotIn('rows',result['chat'])
+        self.assertNotIn('old full conversation',result['body'])
+
     def test_accept_resume_request_does_not_accept_phone_or_other_message(self):
         html='''<div class="nav-figure"><span class="label">Candidate</span></div>
         <div class="friend-content selected"><div class="name-box"><span class="name-text">HR</span><span>Company</span></div></div>
@@ -246,6 +260,6 @@ class ChatDOMTests(unittest.TestCase):
 
     def test_detail_skeleton_is_not_full_jd(self):
         html='<div class="job-detail-container"><div class="skeleton-box">Footer</div></div>'
-        output=self.run_dom([boss_chat.boss_page.observation_script()],html=html)
+        output=self.run_dom([boss_chat.boss_page.observation_script('detail')],html=html)
         self.assertTrue(output['values'][0]['detail']['loading'])
         self.assertEqual(output['values'][0]['detail']['text'],'')

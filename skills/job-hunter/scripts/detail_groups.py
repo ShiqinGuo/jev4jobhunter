@@ -35,12 +35,9 @@ def execute(engine, operation, data):
     guard = engine.safety
     if operation == 'collect-details':
         keys = data.get('keys')
-        if (set(data) - {'keys', 'waitMs'} or not isinstance(keys, list) or not 1 <= len(keys) <= 5
+        if (set(data) - {'keys', 'waitMs'} or not isinstance(keys, list) or not keys
                 or any(not isinstance(k, str) for k in keys) or len(set(keys)) != len(keys)):
-            raise store.StoreError('one-to-five-distinct-current-candidate-keys-required')
-        configured = store.load_policy(guard.root).get('search', {}).get('detailReadGroupSize', 5)
-        if type(configured) is not int or not 1 <= configured <= 5 or len(keys) > configured:
-            raise store.StoreError('detail-group-exceeds-policy-size')
+            raise store.StoreError('distinct-current-candidate-keys-required')
         timeout = data.get('waitMs', 4000)
         if type(timeout) is not int or not 0 <= timeout <= 10000:
             raise store.StoreError('waitMs-must-be-integer-between-0-and-10000')
@@ -104,8 +101,6 @@ def execute(engine, operation, data):
                 store.required_string(review, 'evidence')
                 if review.get('decision') not in ('apply', 'skipped', 'deferred'):
                     raise store.StoreError('invalid-detail-decision')
-                if review['decision'] == 'apply' and review.get('eligibilityPassed') is not True:
-                    raise store.StoreError('jd-eligibility-review-required')
             for review in reviews:
                 key = review['key']
                 group['reviews'][key] = deepcopy(review)
@@ -113,7 +108,9 @@ def execute(engine, operation, data):
                 if review['decision'] != 'apply':
                     flow['candidates'][key].update(decision=review['decision'], reviewEvidence=review['evidence'])
             guard._save(state)
-            return {'status': 'reviewed', 'group': group}
+            return {'status': 'reviewed', 'groupId': group['id'],
+                    'decisions': [{k:r[k] for k in ('key','decision')} for r in reviews],
+                    'nextAction': 'submit-reviewed-detail' if any(r['decision']=='apply' for r in reviews) else 'continue-current-batch'}
     if operation == 'submit-reviewed-detail':
         if set(data) != {'request'} or not isinstance(data['request'], dict):
             raise store.StoreError('single-outbox-request-required')

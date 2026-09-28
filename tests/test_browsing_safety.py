@@ -791,13 +791,13 @@ class ScriptedTransport:
             raise value
         if isinstance(value, dict) and 'outcome' in value:
             return value
-        if args.get('code', '').startswith('(async') and 'samples' not in value:
-            value = {'ready': '已向BOSS发送消息' in value.get('body', ''), 'samples': [value], 'waitMs': 0}
+        if args.get('code', '').startswith('(async') and 'page' not in value:
+            value = {'ready': '已向BOSS发送消息' in value.get('body', ''), 'page': value, 'polls': 1, 'waitMs': 0}
         return {'outcome': 'returned', 'result': {'data': {'value': json.dumps(value, ensure_ascii=False)}}}
 
     @property
     def mutation_calls(self):
-        return [call for call in self.calls if call[1]['code'] != boss_page.observation_script()
+        return [call for call in self.calls if call[1]['code'] not in [boss_page.observation_script(scope) for scope in ('list','detail','receipt')]
                 and not call[1]['code'].startswith('(async')]
 
 
@@ -807,7 +807,7 @@ class BrowsingEngineTests(BrowsingFixture):
         receipt = deepcopy(page)
         receipt['body'] = '已向BOSS发送消息'
         transport = ScriptedTransport(page, {'status': 'clicked'},
-            {'ready': True, 'samples': [page, receipt], 'waitMs': 200})
+            {'ready': True, 'page': receipt, 'polls': 2, 'waitMs': 200})
         result = self.engine(transport).execute('submit', {'request': self.request()})
         self.assertEqual(result['status'], 'succeeded')
         self.assertEqual(result['metrics']['waitMs'], 200)
@@ -817,7 +817,7 @@ class BrowsingEngineTests(BrowsingFixture):
     def test_greet_timeout_directs_chat_reconciliation_without_resend(self):
         page = self.ready_to_submit()
         transport = ScriptedTransport(page, {'status': 'clicked'},
-            {'ready': False, 'samples': [page, page], 'waitMs': 4000})
+            {'ready': False, 'page': page, 'polls': 2, 'waitMs': 4000})
         result = self.engine(transport).execute('submit', {'request': self.request()})
         self.assertEqual(result['status'], 'unknown')
         self.assertEqual(result['nextAction'], 'inspect-chat-and-reconcile-no-resend')
@@ -828,7 +828,7 @@ class BrowsingEngineTests(BrowsingFixture):
         receipt = deepcopy(page)
         receipt['body'] = '已向BOSS发送消息'
         transport = ScriptedTransport(page, {'outcome': 'unknown'},
-            {'ready': True, 'samples': [receipt], 'waitMs': 0})
+            {'ready': True, 'page': receipt, 'polls': 1, 'waitMs': 0})
         result = self.engine(transport).execute('submit', {'request': self.request()})
         self.assertEqual(result['status'], 'succeeded')
         self.assertEqual(len(transport.mutation_calls), 1)

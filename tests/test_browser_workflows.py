@@ -46,7 +46,7 @@ class WorkflowTests(BrowsingFixture):
             if self.deliver and self.clicked and not any(m['id']=='out-1' for m in self.page['chat']['messages']):
                 self.page['chat']['messages'].append({'id':'out-1','direction':'out','text':self.request['content'],
                     'body':self.request['content'],'delivered':True,'failed':False})
-            value={'ready':self.deliver,'samples':[deepcopy(self.page),deepcopy(self.page)],'waitMs':200}
+            value={'ready':self.deliver,'page':deepcopy(self.page),'polls':2,'waitMs':200}
         elif 'const args=' in code:
             self.clicked+=1
             if self.click_unknown:
@@ -130,14 +130,16 @@ class WorkflowTests(BrowsingFixture):
         self.assertEqual(self.clicked,1)
         self.assertEqual(store.load_state(self.root)['actions'][first['id']]['status'],'unknown')
 
-    def test_wait_restriction_wins_over_later_normal_page(self):
+    def test_wait_saves_restriction_and_poll_counts_in_one_evidence_file(self):
         blocked={**self.page,'body':'访问受限'}
-        with patch.object(self.engine,'_call',return_value={'samples':[blocked,self.page],'ready':True,'waitMs':200}):
+        with patch.object(self.engine,'_call',return_value={'page':blocked,'polls':2,'ready':False,'waitMs':200}):
             result=condition_wait.observe(self.engine,boss_chat.observation_script(),'return true;',{},500)
         self.assertFalse(result['ready'])
         self.assertIsNotNone(self.guard.status()['accessBlock'])
-        raw=store.read_json(self.root/result['observations'][0])
-        self.assertEqual(len(raw['samples']),2)
+        raw=store.read_json(self.root/result['observation']['evidence'])
+        self.assertEqual(raw['wait']['polls'],2)
+        self.assertNotIn('samples',raw)
+        self.assertEqual(raw['page']['body'],'访问受限')
 
     def test_compact_preserves_model_context_and_raw_evidence(self):
         self.page['chat']['rows']=[{'recipient':self.who,'preview':'您好'}]
@@ -146,7 +148,10 @@ class WorkflowTests(BrowsingFixture):
         self.assertNotIn('body',summary['page'])
         self.assertEqual(summary['page']['chat']['messages'],self.page['chat']['messages'])
         self.assertEqual(summary['page']['chat']['rows'],self.page['chat']['rows'])
-        self.assertEqual(store.read_json(self.root/result['metrics']['evidence'])['result']['page']['body'],'正常会话')
+        metrics=store.read_json(self.root/result['metrics']['evidence'])
+        self.assertNotIn('page',metrics['result'])
+        self.assertEqual(metrics['evidence'],[result['evidence']])
+        self.assertEqual(store.read_json(self.root/result['evidence'])['page']['body'],'正常会话')
 
     def test_policy_cache_invalidates_even_with_same_stat_and_is_not_mutable(self):
         first=store.load_policy(self.root);first['authorization']['reply']='draft'
@@ -167,7 +172,7 @@ class WaitDOMTests(unittest.TestCase):
         wait=condition_wait.script(observation,"return page.value==='delivered';",{},1000,stable_samples=1)
         result=self.run_dom([setup,wait],html='<div id="status">loading</div>')
         self.assertTrue(result['values'][1]['ready'])
-        self.assertEqual(result['values'][1]['samples'][-1]['value'],'delivered')
+        self.assertEqual(result['values'][1]['page']['value'],'delivered')
         self.assertEqual(result['calls'],[])
 
     def test_dom_wait_reads_delayed_change_without_clicking(self):
@@ -176,5 +181,20 @@ class WaitDOMTests(unittest.TestCase):
         wait=condition_wait.script(observation,"return page.value==='ready' ? page.value : false;",{},1000)
         result=self.run_dom([setup,wait],html='<div id="status">loading</div>')
         self.assertTrue(result['values'][1]['ready'])
-        self.assertEqual(result['values'][1]['samples'][0]['value'],'loading')
+        self.assertEqual(result['values'][1]['page']['value'],'ready')
+        self.assertGreaterEqual(result['values'][1]['polls'],2)
+        self.assertNotIn('samples',result['values'][1])
         self.assertEqual(result['calls'],[])
+
+    def test_blocking_page_stops_polling_before_it_can_disappear(self):
+        observation="(() => JSON.stringify({body: '访问受限', controls:[{}]}))()"
+        result=self.run_dom([condition_wait.script(observation,'return true;',{},1000)])
+        waited=result['values'][0]
+        self.assertFalse(waited['ready'])
+        self.assertEqual(waited['polls'],1)
+        self.assertEqual(waited['page']['body'],'访问受限')
+
+    def test_security_job_description_is_not_a_blocking_page(self):
+        observation="(() => JSON.stringify({body:'访问受限研究', detail:{text:'访问受限研究'}, controls:[{}]}))()"
+        result=self.run_dom([condition_wait.script(observation,'return true;',{},500)])
+        self.assertTrue(result['values'][0]['ready'])

@@ -14,15 +14,16 @@ import boss_chat
 import browser_workflows
 import detail_groups
 import condition_wait
+import jev
 from browsing_safety import Safety
 import webbridge_client
-from operation_metrics import Measurement, compact
+from operation_metrics import Measurement, compact, group_summary
 from policy_rules import browser_route
 
-OPERATIONS = ('status', 'resume-context', 'recover-page', 'inspect', 'start-query', 'control', 'capture-list', 'screen',
+OPERATIONS = ('status', 'resume-context', 'recover-page', 'inspect', 'start-query', 'control', 'capture-list', 'screen', 'screen-many',
               'open-detail', 'review-detail', 'submit', 'reconcile', 'scroll',
               'dismiss-receipt', 'ack-quota-notice', 'clear-access-block', 'defer-detail', 'select-account-context', 'finish-list-read',
-              'focus-page', 'release-focus', 'open-page', 'select-page', 'restore-filters', 'revisit-candidate', 'inspect-session', 'screenshot', *boss_chat.OPERATIONS, *browser_workflows.OPERATIONS, *detail_groups.OPERATIONS)
+              'focus-page', 'release-focus', 'open-page', 'select-page', 'restore-filters', 'revisit-candidate', 'inspect-session', 'screenshot', *boss_chat.OPERATIONS, *browser_workflows.OPERATIONS, *detail_groups.OPERATIONS, *jev.OPERATIONS)
 
 
 class BrowserError(store.StoreError):
@@ -92,10 +93,10 @@ class Engine:
             raise store.StoreError('unsupported-browser-response')
         return value
 
-    def _inspect(self) -> dict:
+    def _inspect(self, scope='list') -> dict:
         # Fixed DOM-only script; does not scroll, click, navigate, fetch or preload.
         self.safety._state()
-        return self.safety.observe(self._call(boss_page.observation_script(), read_only=True))
+        return self.safety.observe(self._call(boss_page.observation_script(scope), read_only=True))
 
     def _recover_page(self, data: dict) -> dict:
         """Restore only this Kimi session's BOSS job page; never send or clear history."""
@@ -171,15 +172,19 @@ class Engine:
             flow = status['flow']
             # Do not bury the required route behind thousands of historical candidates.
             checkpoint = {key: flow.get(key) for key in ('query', 'batch', 'phase', 'activeKey',
-                          'pending', 'pageRecovery', 'lastObservation', 'backlog', 'retainedBatches', 'focusEmulated', 'detailGroup')}
+                          'pending', 'pageRecovery', 'lastObservation', 'backlog', 'focusEmulated')}
+            if flow.get('detailGroup'):
+                checkpoint['detailGroup'] = group_summary(flow['detailGroup'])
             return {'browser': route, 'policyFingerprint': store.fingerprint(policy),
                     'session': context.get('session') or flow.get('session'),
                     'platform': status['platform'], 'accessBlock': status['accessBlock'],
                     'accountContext': context, 'flow': checkpoint,
-                    'requiredReads': ['SKILL.md', 'references/drivers.md', 'kimi-webbridge/SKILL.md'],
+                    'readIfNotInContext': ['SKILL.md', 'references/drivers.md', 'kimi-webbridge/SKILL.md'],
                     'networkCalls': 0}
         if operation == 'recover-page':
             return self._recover_page(data)
+        if operation in jev.OPERATIONS:
+            return jev.execute(self, operation, data)
         if operation in detail_groups.OPERATIONS:
             return detail_groups.execute(self, operation, data)
         if operation in browser_workflows.OPERATIONS:
@@ -269,8 +274,11 @@ class Engine:
         if operation in boss_chat.OPERATIONS:
             return boss_chat.execute(self, operation, data)
         if operation == 'inspect':
-            return self._inspect()
-        if operation in ('start-query', 'restore-filters', 'revisit-candidate', 'screen', 'review-detail', 'clear-access-block', 'defer-detail', 'select-account-context', 'finish-list-read'):
+            if set(data)-{'scope'}:
+                raise store.StoreError('inspect-scope-only')
+            flow = self.safety.status()['flow']
+            return self._inspect(data.get('scope') or ('detail' if flow.get('activeKey') else 'list'))
+        if operation in ('start-query', 'restore-filters', 'revisit-candidate', 'screen', 'screen-many', 'review-detail', 'clear-access-block', 'defer-detail', 'select-account-context', 'finish-list-read'):
             return getattr(self.safety, operation.replace('-', '_'))(data)
         if operation == 'reconcile':
             return self._reconcile(data)
@@ -282,13 +290,18 @@ class Engine:
             if data['request'].get('contentMode') != 'platform-default':
                 raise store.StoreError('boss-adapter-supports-platform-default-only')
             store.validate_content_mode(data['request'])
+        return self._page_step(operation, data)
+
+    def _page_step(self, operation, data, *, after=None):
+        """One guarded UI step; a business wait replaces the intermediate read."""
         # This precedes even passive inspection: blocked heartbeats make zero browser calls.
         self.safety.preflight()
         prior_controls = []
         flow = self.safety.status()['flow']
         if operation == 'control' and flow.get('lastObservation'):
             prior_controls = self.safety._last_page(flow).get('controls', [])
-        before = self._inspect()
+        scope = 'detail' if operation=='submit' else 'receipt' if operation in ('dismiss-receipt','ack-quota-notice') else 'list'
+        before = self._inspect(scope)
         prior = next((c for c in prior_controls if c.get('id') == data.get('id')), {})
         if (operation == 'control' and prior.get('kind') == 'filter-option' and
                 data.get('id') not in {c['id'] for c in before['page'].get('controls', [])}):
@@ -342,7 +355,8 @@ class Engine:
             if moved.get('outcome') != 'returned' or moved.get('result', {}).get('ok') is False:
                 raise store.StoreError('browser-outcome-unknown:inspect-do-not-repeat')
             result = {**result, 'status': 'hovered'}
-        observation = self._inspect()
+        final = after() if after else {'observation': self._inspect('detail' if operation=='open-detail' else scope)}
+        observation = final['observation']
         if result.get('status') == 'hovered':
             owner = next((c.get('filter') for c in observation['page'].get('controls', []) if c.get('id') == data.get('id')), None)
             result['menuOpened'] = bool(owner) and any(c.get('kind') == 'filter-option' and c.get('filter') == owner
@@ -350,7 +364,7 @@ class Engine:
             if not result['menuOpened']:
                 # Say what to do next instead of leaving a bare false behind.
                 result['nextAction'] = 'observe-and-reopen-current-menu'
-        return {'step': result, 'observation': observation}
+        return {'step': result, **final}
 
     def _submit(self, data: dict) -> dict:
         if set(data) != {'request'} or not isinstance(data['request'], dict):
@@ -427,7 +441,7 @@ class Engine:
             return {'id': action_id, 'status': action['status'], 'unchanged': True}
         status, evidence = 'unknown', 'Passive receipt inspection unavailable; do not resend.'
         try:
-            waited = condition_wait.observe(self, boss_page.observation_script(), '''
+            waited = condition_wait.observe(self, boss_page.observation_script('receipt'), '''
 return page.accountLabel===args.accountLabel && page.detail?.key===args.targetKey &&
   page.body.includes('已向BOSS发送消息');
 ''', {'accountLabel': action.get('accountLabel'), 'targetKey': action['targetKey']},
@@ -505,7 +519,7 @@ def main() -> int:
             raise store.StoreError('run-token-and-browser-session-required')
         engine = Engine(args.data_dir.expanduser(), args.token, args.platform, args.session)
         result = engine.execute(args.operation, store.read_json(args.file) if args.file else {})
-        print(json.dumps(compact(result) if args.output == 'compact' else result, ensure_ascii=False))
+        print(json.dumps(compact(result, args.operation) if args.output == 'compact' else result, ensure_ascii=False))
         return 0
     except (ValueError, OSError, KeyError) as error:
         details = {'cause': error.detail, 'nextAction': error.next_action} if isinstance(error, BrowserError) else {}

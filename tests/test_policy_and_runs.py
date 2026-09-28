@@ -158,15 +158,15 @@ class PolicyTests(Fixture):
             with self.assertRaisesRegex(store.StoreError, 'excluded-headhunter'):
                 store.begin(self.root, self.token, request)
 
-    def test_unknown_publisher_requires_reading_not_guessing(self):
+    def test_unknown_publisher_allows_contact_but_requires_verification_for_resume(self):
         self.allow()
         self.configure(search={'excludeHeadhunterPosted': True})
         request = self.request()
         request.update(kind='greet', targetFacts={'company': 'Fixture'})
+        store.begin(self.root, self.token, request)
+        request.update(kind='share_resume', targetKey='boss:resume', inboundId='new-request')
         with self.assertRaisesRegex(store.StoreError, 'publisher-unverified'):
             store.begin(self.root, self.token, request)
-        request['targetFacts'].update(publisherType='direct', evidence='Page labels publisher as employer HR')
-        store.begin(self.root, self.token, request)
 
     def test_project_exclusion_survives_different_recruiter(self):
         self.allow()

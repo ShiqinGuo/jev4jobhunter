@@ -14,7 +14,9 @@
 
 `waitMs` 是 0–10000 的整数。条件等待在一次 Kimi evaluate 内只读当前 DOM，连续两次满足精确身份及内容条件才 ready；超时返回 pending/unknown，不能以等待结束代替回执。发送动作已尝试、状态 unknown 或已经终结时，actionId 路线只核对，绝不再次点击发送。模糊传输结果也只被动恢复。附件分享与确认继续使用单步入口，不自动同意其他类型请求。
 
-CLI 默认 `--output compact`，去掉整页 body 和业务闭环中的其他会话列表，保留当前消息、JD、状态、下一步和证据路径。直接 inspect-chat 保留选择会话所需的列表；inspect 保留卡片。`--output full` 返回完整结构。原始结果和所有等待样本保存在 data-dir 的 logs/operations、logs/browsing；失败输出携带测量证据，便于展开诊断。
+CLI 默认 `--output compact`，按操作返回材料：inspect 读取列表，有活动岗位时读取详情，也可显式传 `{"scope":"list|detail|receipt"}`；inspect-chat 保留会话列表和消息，open-detail-and-wait 只带详情；发送收尾只返回结果和证据。capture-list 只展开尚待粗筛的卡片，恢复断点只带详情引用。`--output full` 返回本次分类观察的完整结构，不额外采集其他区域。
+
+列表观察不读 JD，详情观察只核对卡片身份、不提取列表正文；聊天回执只读 baselineIds 之后的消息正文。账号、筛选和页面异常仍会核验。logs/browsing 保存最终观察及 wait 计数，遇到限制立即保存并停止；不再保存轮询数组或单独的 wait 日志。logs/operations 只保存计时、结果 ID/状态及证据路径，不保存页面、详情组或聊天正文。review-detail-group 只返回 groupId、decisions、nextAction，原始 JD 保留在状态与观察证据中。
 
 每次顶层业务调用记录 elapsedMs、browserCalls、browserMs、waitMs、recoveryCount、status；elapsedMs 是执行器时间，不包括宿主模型思考和调用往返。失败和 unknown 都保留，不能只挑成功记录统计。页面登记按 session 保存完整 URL、现场账号、清单归属及最后观察；它不替代下一次动态页面检查。稳定策略校验仅按当前文件内容缓存，每次仍读取文件；授权、接管、来信、编辑器和附件版本在提交前重新检查。
 
@@ -48,7 +50,7 @@ python scripts/store.py --data-dir ./demo-data set-policy --token TOKEN --file u
 
 ## 浏览操作的正式入口
 
-网页通道固定为 Kimi WebBridge，不能切到 `mcp__cua_repl` / `cua.*`。每次压缩、新轮次或中断恢复，在任何浏览器调用前重读 SKILL、drivers、当前 policy.browser 和 Kimi 技能，然后执行：
+网页通道固定为 Kimi WebBridge，不能切到 `mcp__cua_repl` / `cua.*`。首次或上下文压缩后读取 SKILL、drivers 和 Kimi 技能；同一上下文已读且未变化的说明不重复加载。每次新运行或中断恢复仍须读取当前策略和断点，然后执行：
 ```sh
 python scripts/browser_actions.py --data-dir ./demo-data --operation resume-context
 ```
@@ -66,7 +68,7 @@ python scripts/browser_actions.py --data-dir ./demo-data --platform boss --opera
 python scripts/browser_actions.py --data-dir ./demo-data --token TOKEN --platform boss --session SESSION --operation inspect
 ```
 
-正式页面步骤通过 `browser_actions.py --data-dir DATA_DIR --token TOKEN --platform boss --session SESSION --operation OP --file input.json` 执行。输入文件为 UTF-8 JSON，只包含本次步骤的数据；一次命令对应一个语义步骤，不提供任意 JavaScript、选择器数组或多岗位循环。
+正式步骤通过 `browser_actions.py --data-dir DATA_DIR --token TOKEN --platform boss --session SESSION --operation OP --file input.json` 执行。输入文件为 UTF-8 JSON；一次命令对应一个业务步骤，支持已有材料的批量判断和登记，不提供任意 JavaScript 或页面批量预取。
 
 `start-query` 输入示例，值须与本人当前 policy 和平台可见选项一致：
 ```json
@@ -90,9 +92,11 @@ python scripts/browser_actions.py --data-dir ./demo-data --token TOKEN --platfor
 | `control` | 使用当前快照中的搜索 / 筛选控件 ID 与 value，配置期间单步操作；控件用 `interaction` 声明展开方式，标为 `click` 的必须点击展开，无该字段的悬停菜单指定 `interaction: "hover"`，仅移动到当前可见菜单中心，之后重新观察选项 |
 | `capture-list` | 验证实际账号及页面选中条件，固定当前自然加载的新卡片批次 |
 | `screen` | 一个 key、shortlisted / skipped / deferred 决定与 evidence；依据当前列表粗筛 |
+| `screen-many` | `{"batchId":"当前批次ID","reviews":[{"key":"boss:JOB_ID","decision":"shortlisted","evidence":"判断依据"}]}`；同批次逐项检查后一次原子保存，任一无效则全部不写 |
+| `evaluate-list` / `evaluate-details` | `{}` 或 `{"model":"jev-1.13.0"}`；仅向 Jev 提交已存列表或完整详情组，一次请求多个判断，无招聘平台访问，见 [jev.md](jev.md) |
 | `open-detail` | 一个已经 shortlisted 的 key，且没有其他活动详情 |
 | `defer-detail` | 一个 key 与 evidence，仅暂挂中断的 open-detail；必须先有该步骤之后、本轮新的被动 inspect 证据，不重新点击 |
-| `review-detail` | 当前 key、apply / skipped / deferred 决定、evidence 和 eligibilityPassed；依据实际 JD |
+| `review-detail` | 当前 key、apply / skipped / deferred 决定和 evidence；依据实际 JD |
 | `submit` | 当前 apply 岗位的 request，沿用 store.begin 动作 JSON；一次提交一次核验，不循环发送 |
 | `reconcile` | 只核对当前已加载页面与原 outbox 动作，不因未知而重发 |
 | `dismiss-receipt` | 已有回执时单击当前确认层的“留在此页” |
@@ -125,7 +129,7 @@ python scripts/browser_actions.py --data-dir ./demo-data --token TOKEN --platfor
 
 `focus-page {}` 经 Kimi 将当前标签带到前台。悬停返回 menuOpened，只有观察到对应菜单选项才为 true；为 false 时结果附带 `nextAction`，提示重新观察并再展开同一菜单一次，不再静默返回假值。标签在后台时先尝试前台恢复；菜单收起则重新观察，不能用旧坐标点击其它菜单。Kimi find_tab 的返回 URL 也必须核对，同站点错误标签不视为切换成功。
 
-当前结构化查询校验覆盖 city、keyword、experience、已配置的 salary 及账号显示名；policy 中其他硬条件仍须根据当前可见平台筛选设置并保存证据，脚本不自动理解任意策略文本。`search.salaryFilter` 启用时，`salary` 必须是其允许的 Boss 标签，并在页面读回中完全匹配；薪资标签是搜索范围，不代替对职位薪资口径的详情判断。`accountLabel` 来自页面显示名，与 session 一起提供当前身份线索；当前适配器没有验证稳定唯一账号 ID，不能把同名视为同一账号，也不能用它证明线上资料版本一致。列表粗筛和 JD 判断分别记录。`eligibilityPassed` 依据完整JD、当前用户允许的投递范围与身份/职责判断，不把已允许年限的个人工龄差异重新当成否决条件。脚本不替 Agent 判断自然语言要求。平台只支持单选且用户没有固定 selectedLabels 时可在 allowedLabels 内分次搜索；固定集合无法在平台表达时记录具体差异，不擅自删项。
+当前结构化查询校验覆盖 city、keyword、experience、已配置的 salary 及账号显示名；policy 中其他硬条件仍须根据当前可见平台筛选设置并保存证据，脚本不自动理解任意策略文本。`search.salaryFilter` 启用时，`salary` 必须是其允许的 Boss 标签，并在页面读回中完全匹配；薪资标签是搜索范围，不代替对职位薪资口径的详情判断。`accountLabel` 来自页面显示名，与 session 一起提供当前身份线索；当前适配器没有验证稳定唯一账号 ID，不能把同名视为同一账号，也不能用它证明线上资料版本一致。列表粗筛和 JD 判断分别记录。完整 JD 批量判断只回答是否值得沟通，不另设资格问题；完整 policy 匹配复核留到沟通阶段。平台只支持单选且用户没有固定 selectedLabels 时可在 allowedLabels 内分次搜索；固定集合无法在平台表达时记录具体差异，不擅自删项。
 
 用户明确选择独立新账号时，先 `inspect` 记录已加载正常页面，再调用本地 `select-account-context`，文件结构如下。`contextId` 是本地明确上下文 ID，不冒充网站 ID；旧限制未绑定时须提供原上下文和原显示名。已有上下文返回时沿用原 ID，不要求重复声明新账号；改浏览器 session 仍须新观察和显式选择。已核验全局范围限制不能在此步骤归为单账号。
 
@@ -258,8 +262,8 @@ doctor 仅检查本地结构、Python、配置、锁与待核对数量，不输�
 
 ## 集中阅读当前批次的详情组
 
-用户授权集中阅读时，先对当前自然批次逐项 screen；`collect-details` 输入 `{"keys":["boss:job-a","boss:job-b"],"waitMs":4000}`，最多5个不同的 shortlisted 岗位，串行打开并保存独立详情，返回 group.id 和 group.details 的完整文本。已经加载的活动详情可作为组内第一项，无需重新点击。中断时先 inspect/defer-detail 收尾待打开项；不要盲目重复点击。
+用户授权集中阅读时，先对当前自然批次逐项 screen；`collect-details` 输入 `{"keys":["boss:job-a","boss:job-b"],"waitMs":4000}`，当前自然批次中全部不同的 shortlisted 岗位，串行打开并保存独立详情，返回 group.id 和 group.details 的完整文本。已经加载的活动详情可作为组内第一项，无需重新点击。中断时先 inspect/defer-detail 收尾待打开项；不要盲目重复点击。
 
-`review-detail-group` 输入 `{"groupId":"返回的id","reviews":[{"key":"boss:job-a","decision":"apply","eligibilityPassed":true,"evidence":"模型对该JD的判断"},{"key":"boss:job-b","decision":"skipped","evidence":"具体不匹配依据"}]}`，必须覆盖该组全部已读详情。组审核不发送。
+`review-detail-group` 输入 `{"groupId":"返回的id","reviews":[{"key":"boss:job-a","decision":"apply","evidence":"模型对该JD的判断"},{"key":"boss:job-b","decision":"skipped","evidence":"具体不匹配依据"}]}`，必须覆盖该组全部已读详情。组审核不发送。
 
 按模型决定，每次 `submit-reviewed-detail` 只传一个原 submit 格式的 request。它重新打开该岗位、比较完整JD、复用审核并调用原 submit；文本变化返回 review-required，模型重新审阅当前详情后用 review-detail/submit 继续。回执与 unknown 规则不变，成功后 dismiss-receipt，再发送下一个；跨每15个成功检查点先处理消息。所有网页动作仍使用同一Kimi会话。

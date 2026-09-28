@@ -1,8 +1,5 @@
 """Bounded DOM-only condition waits inside one Kimi call. Never clicks or fetches."""
 import json
-import uuid
-import store
-from browsing_safety import classify
 
 
 def script(observation, predicate, arguments, timeout_ms, stable_samples=2):
@@ -13,17 +10,32 @@ def script(observation, predicate, arguments, timeout_ms, stable_samples=2):
     return "(async () => {const args=" + json.dumps(arguments,ensure_ascii=False) + ";" + """
 const observe=()=>JSON.parse(OBSERVATION);
 const accept=page=>{PREDICATE};
-const samples=[]; const start=Date.now(); let waitMs=0;
+// Match the blocking classifications in browsing_safety.classify on every poll.
+// Stop immediately: a transient challenge must not disappear in a later sample.
+const blocked=page=>{
+  const body=page.body||'';
+  let signals=body;
+  for(const content of [page.detail?.text,...(page.cards||[]).map(c=>c.text)])
+    if(content) signals=signals.split(content).join('');
+  const normal=!!(page.cards?.length||page.detail||page.controls?.length||page.chat?.rows?.length||page.chat?.recipient||page.filenames?.length);
+  return /访问受限|IP存在异常行为|账户存在异常行为|账号存在异常行为|请完成安全验证|请完成验证|滑动验证/.test(signals)||
+    (page.url||'').includes('/passport/zp/403')||
+    (body.includes('安全检查')&&!normal)||
+    (body.includes('登录')&&!page.accountLabel&&!normal)||body.includes('登录查看完整内容');
+};
+const start=Date.now(); let waitMs=0, polls=0;
 let previous=null, stable=0;
 while(true) {
-  const page=observe(); samples.push(page);
+  const page=observe(); polls++;
+  const finish=ready=>JSON.stringify({ready,page,polls,waitMs});
+  if(blocked(page)) return finish(false);
   const accepted=accept(page);
   const signature=JSON.stringify(accepted);
   stable=accepted && signature===previous ? stable+1 : (accepted ? 1 : 0);
   previous=signature;
-  if(stable>=STABLE) return JSON.stringify({ready:true,samples,waitMs});
+  if(stable>=STABLE) return finish(true);
   const remaining=TIMEOUT-(Date.now()-start);
-  if(remaining<=0) return JSON.stringify({ready:false,samples,waitMs});
+  if(remaining<=0) return finish(false);
   const pause=Math.min(200,remaining); const before=Date.now();
   await new Promise(resolve=>setTimeout(resolve,pause)); waitMs+=Date.now()-before;
 }
@@ -34,13 +46,6 @@ def observe(engine, observation, predicate, arguments, timeout_ms, stable_sample
     result=engine._call(script(observation,predicate,arguments,timeout_ms,stable_samples),read_only=True)
     if engine.measurement:
         engine.measurement.wait_ms += result['waitMs']
-    relative='logs/browsing/wait-'+uuid.uuid4().hex+'.json'
-    (engine.safety.root/'logs'/'browsing').mkdir(parents=True,exist_ok=True)
-    store.write_json(engine.safety.root/relative,{'at':store.stamp(),'session':engine.safety.session,**result})
-    # Preserve every raw poll once, but update durable flow once. A transient
-    # access restriction must still win over a later normal-looking snapshot.
-    blocked=next((p for p in result['samples'] if classify(p) in
-                  ('access-restricted','security-check','login-required')),None)
-    saved=engine.safety.observe(blocked or result['samples'][-1])
-    return {'ready':result['ready'] and blocked is None and saved['classification']=='normal','observation':saved,
-            'observations':[relative,saved['evidence']], 'polls':len(result['samples'])}
+    saved=engine.safety.observe(result['page'],wait={k:result[k] for k in ('ready','polls','waitMs')})
+    return {'ready':result['ready'] and saved['classification']=='normal',
+            'observation':saved,'polls':result['polls']}
