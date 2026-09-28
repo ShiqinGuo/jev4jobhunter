@@ -1,3 +1,4 @@
 # Android capture is optional; the existing browser runtime remains standard-library only.
 mitmproxy>=12.2,<13
 lz4>=4.4,<5
+Pillow>=11,<13

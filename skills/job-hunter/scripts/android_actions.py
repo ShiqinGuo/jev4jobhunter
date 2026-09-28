@@ -46,7 +46,7 @@ class Workflow:
         policy = store.load_policy(self.root)
         account = next(p.get('accountLabel') for p in policy['platforms'] if p['id'] == 'boss')
         nodes = self.device.ui()
-        if not account or not any(node.get('text') == account for node in nodes.iter('node')):
+        if not account or not any(node.get('text') == account or node.get('content-desc') == account for node in nodes.iter('node')):
             raise store.StoreError('open-my-page-to-verify-account')
         self.batch = {'contextId': uuid.uuid4().hex, 'accountLabel': account,
                       'accountContextId': store.active_account_context(store.load_state(self.root), 'boss').get('id'),
@@ -71,6 +71,8 @@ class Workflow:
             if job['key'] not in self.batch['jobs']:
                 self.batch['jobs'][job['key']] = {**job, 'listEvidence': event['id']}
                 added.append(job['key'])
+            if 'activeKeys' in self.batch and job['key'] not in self.batch['activeKeys']:
+                self.batch['activeKeys'].append(job['key'])
         self.batch.update(lastList=event['id'], hasMore=event['hasMore'])
         self.save()
         return {'status': 'captured', 'added': len(added), 'total': len(self.batch['jobs']), 'keys': added}
@@ -150,13 +152,18 @@ class Workflow:
                 self.device.swipe(profile, reverse=reverse)
         raise store.StoreError('job-not-found-in-current-list')
 
-    def collect(self):
+    def collect(self, limit=None, excluded=()):
         state = self.check()
         policy = store.load_policy(self.root)
-        for key, job in self.batch['jobs'].items():
-            if job.get('complete') or key in self.batch['decisions']:
+        held = {a.get('targetKey') for a in state['actions'].values() if a.get('status') in store.HELD} | set(excluded)
+        selected = list(self.batch.get('selection', []))
+        for key in self.batch.get('activeKeys', self.batch['jobs']):
+            job = self.batch['jobs'][key]
+            if limit and len(selected) >= limit:
+                break
+            if key in selected or key in self.batch['decisions']:
                 continue
-            if any(a.get('targetKey') == key and a.get('status') in store.HELD for a in state['actions'].values()):
+            if key in held:
                 self.batch['decisions'][key] = {'key': key, 'apply': False, 'reason': 'already-held'}
                 self.save()
                 continue
@@ -166,25 +173,50 @@ class Workflow:
                 self.batch['decisions'][key] = {'key': key, 'apply': False, 'reason': str(error)}
                 self.save()
                 continue
-            detail = self.open_job(job)
-            self.batch['jobs'][key].update(detail)
+            if not job.get('complete'):
+                detail = self.open_job(job)
+                self.batch['jobs'][key].update(detail)
+                self.device.back()
+            selected.append(key)
+            if limit:
+                self.batch['selection'] = selected
             self.save()
-            self.device.back()
-        return {'status': 'collected', 'complete': sum(job['complete'] for job in self.batch['jobs'].values()), 'nextAction': 'evaluate-batch'}
+        return {'status': 'collected', 'complete': len(selected), 'nextAction': 'evaluate-batch'}
 
     def evaluate(self):
         self.check()
-        pending = [job for key, job in self.batch['jobs'].items() if key not in self.batch['decisions']]
+        scope = self.batch.get('selection', self.batch['jobs'])
+        pending = [self.batch['jobs'][key] for key in scope if key not in self.batch['decisions']]
         if not pending:
             return {'status': 'already-evaluated', 'providerCalls': 0}
-        result = jev.evaluate_jobs(self.root, pending)
+        if any(not job.get('complete') for job in pending):
+            raise store.StoreError('complete-jds-required-for-batch-decision')
+        digest = store.fingerprint(pending)
+        attempt = self.batch.get('evaluation')
+        cached = bool(attempt)
+        if attempt:
+            if attempt['inputFingerprint'] != digest:
+                raise store.StoreError('jev-attempt-input-changed')
+            evidence = Path(attempt['evidence'])
+            if not evidence.exists():
+                raise store.StoreError('jev-result-unknown:do-not-repeat-provider-call')
+            result = store.read_json(evidence)
+        else:
+            if not jev.api_key():
+                raise store.StoreError('jev-key-unavailable')
+            evidence = self.root / 'android' / ('jev-' + uuid.uuid4().hex + '.json')
+            self.batch['evaluation'] = {'status': 'pending', 'inputFingerprint': digest,
+                                        'evidence': str(evidence), 'startedAt': store.stamp()}
+            self.save()  # Survives a lost tool response or process interruption; never blindly retries.
+            result = jev.evaluate_jobs(self.root, pending)
+            store.write_json(evidence, result)
         self.check()
-        evidence = self.root / 'android' / ('jev-' + uuid.uuid4().hex + '.json')
-        store.write_json(evidence, result)
         self.batch['decisions'].update({row['key']: {**row, 'evidence': str(evidence)} for row in result['judgments']})
+        self.batch['evaluation'].update(status='succeeded', providerCalls=1, inputCount=len(pending))
         self.save()
         return {'status': 'evaluated', 'apply': sum(row['apply'] for row in result['judgments']),
-                'count': len(pending), 'providerCalls': 1, 'elapsedMs': result['elapsedMs'], 'usage': result['usage']}
+                'count': len(pending), 'providerCalls': 0 if cached else 1,
+                'elapsedMs': result['elapsedMs'], 'usage': result['usage'], 'evidence': str(evidence)}
 
     def apply(self, dry=True):
         self.check()
@@ -245,13 +277,97 @@ class Workflow:
         return {'status': 'finished', 'results': self.batch['results']}
 
 
+def preview(workflow, source, city, query, count, excluded=()):
+    from android_ui import NativeUI
+    started = time.perf_counter()
+    phases = {}
+    if not 1 <= count <= 100:
+        raise store.StoreError('preview-count-must-be-1-to-100')
+    plan = {'source': source, 'city': city, 'query': query, 'count': count, 'excluded': sorted(excluded)}
+    root, device = workflow.root, workflow.device
+    original_actions = store.load_state(root)['actions']
+    result_path = root / 'android' / 'preview.json'
+    if result_path.exists():
+        previous = store.read_json(result_path)
+        if previous.get('plan') == plan and previous.get('policyFingerprint') == store.fingerprint(store.load_policy(root)):
+            workflow.check()
+            return {**previous, 'cached': True}
+    excluded = set(excluded)
+    for prior_path in (root / 'android').glob('preview-*.json'):
+        prior = store.read_json(prior_path)
+        if prior.get('plan') != plan:
+            excluded.update(prior.get('keys', []))
+    attempt = workflow.batch.get('evaluation', {})
+    if attempt.get('status') == 'pending' and not Path(attempt['evidence']).exists():
+        raise store.StoreError('jev-result-unknown:inspect-existing-attempt')
+    device.capture()
+    try:
+        device.restart()
+        ui = NativeUI(device, root, root / 'android' / ('ui-' + uuid.uuid4().hex))
+        if workflow.batch.get('plan') != plan:
+            if workflow.batch:
+                store.write_json(root / 'android' / ('batch-' + workflow.batch['contextId'] + '.json'), workflow.batch)
+            ui.bind(workflow)
+            workflow.batch['plan'] = plan
+            workflow.save()
+        else:
+            workflow.check()
+        ui.source(source, query)
+        ui.city(city)
+        evidence = {}
+        salaries = ui.policy['search']['androidFilters'][source]['salaryLabels'] if source == 'recommendation' else [None]
+        phases.update(prepareMs=round((time.perf_counter() - started) * 1000), collectMs=0)
+        for index, salary in enumerate(salaries):
+            filtering = time.perf_counter()
+            evidence[salary or 'search'] = ui.filters(source, workflow, salary)
+            phases['prepareMs'] += round((time.perf_counter() - filtering) * 1000)
+            collecting = time.perf_counter()
+            target = (count * (index + 1) + len(salaries) - 1) // len(salaries)
+            before = set(workflow.batch.get('selection', []))
+            for _ in range(8):
+                result = workflow.collect(target, excluded)
+                if result['complete'] >= target:
+                    break
+                loaded = workflow.scroll_next()
+                if loaded['status'] != 'captured':
+                    raise store.StoreError('sample-incomplete:' + loaded['status'])
+            for key in set(workflow.batch.get('selection', [])) - before:
+                workflow.batch['jobs'][key]['sampleSalary'] = salary
+            workflow.save()
+            phases['collectMs'] += round((time.perf_counter() - collecting) * 1000)
+        if len(workflow.batch.get('selection', [])) != count:
+            raise store.StoreError('sample-incomplete:bounded-load-limit')
+        decision = workflow.evaluate()
+        batch_evidence = root / 'android' / ('batch-' + workflow.batch['contextId'] + '.json')
+        store.write_json(batch_evidence, workflow.batch)
+        result = {'status': 'complete', 'plan': plan, 'policyFingerprint': workflow.batch['policyFingerprint'],
+                  'fullJdCount': count, 'keys': workflow.batch['selection'], 'filters': evidence,
+                  'decision': decision, 'dryRun': workflow.apply(), 'batchEvidence': str(batch_evidence),
+                  'outboxUnchanged': original_actions == store.load_state(root)['actions'],
+                  'externalSendCount': 0, 'finishedAt': store.stamp()}
+    finally:
+        device.capture(stop=True)
+    report_path = root / 'android' / ('preview-' + workflow.batch['contextId'] + '.json')
+    result.update(elapsedMs=round((time.perf_counter() - started) * 1000), phases=phases, report=str(report_path))
+    store.write_json(result_path, result)
+    store.write_json(report_path, result)
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--data-dir', type=Path, default=Path(os.environ.get('JOB_HUNTER_HOME', '~/.job-hunter')))
     parser.add_argument('--config', type=Path, required=True)
     parser.add_argument('--send', action='store_true', help='Use the existing authorization and outbox to greet selected jobs.')
-    parser.add_argument('operation', choices=('start', 'stop', 'inspect', 'bind-account', 'arm-search', 'read-batch', 'calibrate-scroll', 'scroll-next', 'collect-details', 'evaluate-batch', 'apply-batch'))
+    parser.add_argument('--source', choices=('recommendation', 'search'))
+    parser.add_argument('--city')
+    parser.add_argument('--query')
+    parser.add_argument('--count', type=int, default=15)
+    parser.add_argument('--exclude-file', type=Path, help='JSON with keys already sampled by another run.')
+    parser.add_argument('operation', choices=('start', 'stop', 'inspect', 'bind-account', 'arm-search', 'read-batch', 'calibrate-scroll', 'scroll-next', 'collect-details', 'evaluate-batch', 'apply-batch', 'preview'))
     args = parser.parse_args()
+    if args.operation == 'preview' and (args.send or not all((args.source, args.city, args.query))):
+        parser.error('preview requires --source, --city, --query and never accepts --send')
     root = args.data_dir.expanduser().resolve()
     device = Device(store.read_json(args.config), root / 'android' / 'responses')
     if args.operation in ('start', 'stop'):
@@ -261,6 +377,12 @@ def main():
     lock = store.run_lock(root, 'acquire')
     try:
         workflow = Workflow(root, device, lock['token'])
+        if args.operation == 'preview':
+            excluded = store.read_json(args.exclude_file)['keys'] if args.exclude_file else []
+            result = preview(workflow, args.source, args.city, args.query, args.count, excluded)
+            return {key: result.get(key) for key in ('status', 'fullJdCount', 'elapsedMs', 'phases', 'report', 'cached')} | {
+                'source': args.source, 'city': args.city, 'providerCalls': result['decision']['providerCalls'],
+                'dryRunCount': result['dryRun']['count'], 'outboxUnchanged': result['outboxUnchanged']}
         operations = {'bind-account': workflow.bind, 'arm-search': workflow.arm_search, 'read-batch': workflow.read_batch,
                       'calibrate-scroll': workflow.calibrate, 'scroll-next': workflow.scroll_next,
                       'collect-details': workflow.collect, 'evaluate-batch': workflow.evaluate,

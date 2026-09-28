@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from io import BytesIO
 import os
 from pathlib import Path
 import re
@@ -131,6 +132,22 @@ class Device:
 
     def back(self):
         self.adb('shell', 'input', 'keyevent', 4)
+
+    def screenshot(self, path):
+        from PIL import Image
+        result = subprocess.run([*self.prefix, 'exec-out', 'screencap', '-p'], capture_output=True, timeout=25, check=True)
+        picture = Image.open(BytesIO(result.stdout)).convert('RGB')
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        picture.save(path)
+        return picture
+
+    def restart(self):
+        resolved = self.adb('shell', 'cmd', 'package', 'resolve-activity', '--brief', PACKAGE).strip().splitlines()[-1]
+        if not resolved.startswith(PACKAGE + '/') or not re.fullmatch(r'[\w./]+', resolved):
+            raise store.StoreError('boss-launcher-not-resolved')
+        self.adb('shell', 'am', 'force-stop', PACKAGE)
+        self.adb('shell', 'am', 'start', '-W', '-n', resolved)
 
     def return_to_list(self):
         self.back()
