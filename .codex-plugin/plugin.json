@@ -1,6 +1,6 @@
 {
   "name": "job-hunter",
-  "version": "0.6.0",
+  "version": "0.6.0+codex.20260926192908",
   "description": "Jev4JobHunter：用 TypeSafe Jev 筛岗位，让 Codex / Claude Code 完成投递与 HR 跟进。支持 BOSS 直聘，保留匹配依据、投递回执与本地进度。",
   "author": {
     "name": "shaneguo"
@@ -34,6 +34,10 @@
       "根据我的简历和求职条件，先找 5 个合适岗位并说明理由。",
       "整理招聘方的新消息，准备有依据的回复草稿。",
       "查看求职进度和仍需处理的申请、面试与未知结果。"
-    ]
+    ],
+    "brandColor": "#B96813",
+    "composerIcon": "./assets/plugin-icon.png",
+    "logo": "./assets/plugin-icon.png",
+    "logoDark": "./assets/plugin-icon.png"
   }
 }
