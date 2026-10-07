@@ -21,5 +21,22 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: node -e "const {chromium}=require('playwright'); chromium.launch({headless:true}).then(b=>b.close()).catch(e=>{console.error(e);process.exit(1)})"
-      - run: python -B -m unittest discover -s tests -v
+      - run: python -m pip install "pytest>=8.4,<10"
+      - run: python -B -m pytest -c pytest.ini tests -m "not android" -v
       - run: python -B scripts/package.py --output job-hunter-preview.zip
+  android:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: python -m pip install -r tests/requirements.txt
+      - run: python -B tests/run_android.py all

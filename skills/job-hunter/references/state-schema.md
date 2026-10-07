@@ -51,7 +51,7 @@ update 只接受 jobs / threads / blocks / scheduler 的一个键，以浅合并
 | phase | idle / configuring / batch / detail-opening / detail / await-list 等当前步骤 |
 | lastObservation / events | 已加载页面观察证据、时间、分类、session、runTokenHash，以及已准备的页面步骤记录；runTokenHash 用于拒绝把旧运行观察当成本轮证据 |
 
-卡片从 unreviewed 经 screen-many 进入 shortlisted、skipped 或 deferred；只有 shortlisted 能打开详情。详情 apply 决定记录完整 JD 的批量布尔判断证据，随后与 outbox 关联；skipped / deferred 或实际外发收尾后才结束此候选。批次中仍有未判断、已入选未处理、活动详情或待核对浏览步骤时，不能滚动或更换查询。
+卡片从 unreviewed 经 screen-many 进入 shortlisted、skipped 或 deferred；只有 shortlisted 能打开详情。详情 apply 决定记录完整 JD 的批量布尔判断证据，随后与 outbox 关联；skipped / deferred 或实际外发收尾后才结束此候选。
 
 profileFingerprint 是本地 profile.md 字节的 SHA-256，不包含网页个人资料。查询、详情审核和 outbox 保留各自使用的资料版本；资料或策略变化后先暂挂未发旧候选、核对已开始外发，再由 start-query 归档旧浏览决定并按新配置重筛。已见列表及旧 skipped 不能继续作为新配置的排除结论；actions 中的成功、unknown、pending 仍参与去重，不随浏览归档清除。
 

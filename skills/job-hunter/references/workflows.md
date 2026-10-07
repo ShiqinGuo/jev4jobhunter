@@ -16,7 +16,7 @@ search 只发现和比较；daily 处理用户指定的新消息、候选和待�
 
 先读策略、断点、平台限制与未决动作。pending/unknown 先对原动作核对，再推进新任务。当前真实限制按 [browsing-safety.md](browsing-safety.md) 处理；普通登录失效按 drivers 恢复。
 
-网页使用 browser_actions，真机按 [android.md](android.md)。设置并核验来源、城市和原生筛选，去重/排除后收齐完整 JD，一次 Jev 决定发送队列。列表批次处理完才继续加载；推荐流不替代指定搜索。保存查询、筛选、候选去向和断点，摘要区分成功、待核对、草稿与缺口。
+网页使用 browser_actions，真机按 [android.md](android.md)。设置并核验来源、城市和原生筛选，去重/排除后收齐完整 JD，一次 Jev 决定发送队列。推荐流不替代指定搜索。保存查询、筛选、候选去向和断点，摘要区分成功、待核对、草稿与缺口。
 
 ### 批量投递后查消息
 

@@ -14,7 +14,9 @@ def package(root: Path, output: Path) -> dict:
                  'docs/media/architecture.zh-CN.svg', 'docs/media/architecture.en.svg', 'docs/media/zh-CN.json', 'docs/media/generate.py', 'docs/media/motion.py', 'docs/media/requirements.txt',
                  '.agents/plugins/marketplace.json',
                  '.codex-plugin/plugin.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json',
-                 '.github/workflows/test.yml', 'scripts/package.py'):
+                 '.github/workflows/test.yml', 'scripts/package.py', 'pytest.ini',
+                 'tests/README.android.md', 'tests/requirements.txt', 'tests/run_android.py',
+                 'tests/conftest.py', 'tests/android_support.py'):
         path = root / name
         if path.is_file():
             files.append(path)
@@ -23,6 +25,8 @@ def package(root: Path, output: Path) -> dict:
     for directory, suffix in [('references', '.md'), ('scripts', '.py'), ('agents', '.yaml')]:
         files.extend(p for p in (skill / directory).glob('*' + suffix) if p.is_file())
     files.extend((skill / 'scripts').glob('android-requirements.txt'))
+    files.extend(p for p in (skill / 'scripts' / 'android').glob('*.java') if p.is_file())
+    files.extend(p for p in (root / 'tests' / 'fixtures').rglob('*.java') if p.is_file())
     interface = json.loads((root / '.codex-plugin/plugin.json').read_text(encoding='utf-8')).get('interface', {})
     for field in ('composerIcon', 'logo', 'logoDark'):
         if interface.get(field):

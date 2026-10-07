@@ -32,3 +32,28 @@ class PackageTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+def test_mobile_release_contains_native_sources_and_pytest_support(tmp_path):
+    root = tmp_path / 'plugin'
+    names = {
+        '.codex-plugin/plugin.json': json.dumps({'name': 'job-hunter', 'version': '0.7.0'}),
+        'skills/job-hunter/SKILL.md': 'Fixture skill',
+        'skills/job-hunter/scripts/android/NativeText.java': 'class NativeText {}',
+        'skills/job-hunter/scripts/android/SendTarget.java': 'class SendTarget {}',
+        'tests/fixtures/android/NativeSendTargetCase.java': 'class NativeSendTargetCase {}',
+        'pytest.ini': '[pytest]',
+        'tests/conftest.py': '# fixtures',
+        'tests/android_support.py': '# support',
+        'tests/run_android.py': '# runner',
+        'tests/requirements.txt': 'pytest>=8.4,<10',
+        'tests/README.android.md': 'Test commands',
+    }
+    for name, body in names.items():
+        target = root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(body, encoding='utf-8')
+    output = package.package(root, tmp_path / 'mobile.zip')
+    with ZipFile(output['archive']) as archive:
+        for name in names:
+            assert archive.read('job-hunter/' + name).decode('utf-8') == names[name]

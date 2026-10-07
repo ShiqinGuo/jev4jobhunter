@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 import hashlib
 import json
+import re
 import unicodedata
 
 
@@ -164,6 +165,20 @@ def check_target(policy: dict, state: dict, request: dict, *, require_complete: 
     if not screened:
         return
     search = policy.get('search', {})
+    large = search.get('largeCompanyExclusion', {})
+    if large.get('enabled'):
+        for row in large.get('companies', []):
+            if companies.intersection(normalized(x) for x in [row['name'], *row.get('aliases', [])]):
+                raise PolicyError('excluded-large-company:' + row['name'])
+    experience = facts.get('experience', '')
+    if re.search(r'3\s*[-~–—至]\s*[4-9]\s*年|(?:[4-9]|[1-9]\d)\s*年(?:以上|及以上)', experience):
+        raise PolicyError('excluded-experience-over-three-years')
+    if search.get('businessTravel', {}).get('accepted') is False:
+        for clause in re.split(r'[。；;\n]', facts.get('text', '')):
+            if '出差' not in clause or re.search(r'(?:无需|不需要|不用|不安排|不涉及|无)\s*(?:工作)?出差', clause):
+                continue
+            if re.search(r'(?:接受|适应|要求|需|需要|安排|经常|偶尔|频繁).{0,18}出差|出差.{0,12}(?:要求|频繁|每周|每月)', clause):
+                raise PolicyError('excluded-required-business-travel')
     if require_complete and exclusions and not companies:
         raise PolicyError('company-unverified')
     if search.get('excludeHeadhunterPosted'):

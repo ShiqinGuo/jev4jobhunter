@@ -1,0 +1,2 @@
+pytest>=8.4,<10
+-r ../skills/job-hunter/scripts/android-requirements.txt

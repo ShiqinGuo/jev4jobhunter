@@ -405,7 +405,7 @@ def validate_content_mode(request: dict) -> bool:
     return True
 
 
-def begin(root: Path, token: str, request: dict, limit: int | None = None) -> dict:
+def begin(root: Path, token: str, request: dict, limit: int | None = None, *, mobile: bool = False) -> dict:
     with transaction(root):
         state = load_state(root)
         require_token(state, token)
@@ -435,7 +435,13 @@ def begin(root: Path, token: str, request: dict, limit: int | None = None) -> di
         identity = json.dumps([family, platform, target, inbound if kind not in ("greet", "application") else ""],
                               ensure_ascii=False, separators=(",", ":"))
         dedupe = hashlib.sha256(identity.encode("utf-8")).hexdigest()
-        if any(a.get("dedupeKey") == dedupe and a.get("status") in HELD for a in state["actions"].values()):
+        existing = next((a for a in state['actions'].values() if a.get('dedupeKey') == dedupe
+                         and a.get('status') in HELD), None)
+        if existing:
+            if mobile:
+                # Returning the original action is part of the same atomic transaction.
+                # Unscoped old actions continue to reserve this target.
+                return deepcopy(existing)
             raise StoreError("duplicate-or-unresolved-action")
         job = state["jobs"].get(target, {})
         if kind in ("greet", "application") and job.get("legacyContacted"):
@@ -467,6 +473,13 @@ def begin(root: Path, token: str, request: dict, limit: int | None = None) -> di
                 raise StoreError("invalid-limit")
             cap = limit if cap is None else min(cap, limit)
         day = moment.date().isoformat()
+        manual = state.get('scheduler', {}).get('manualApplicationRun', {})
+        if mobile and platform == 'boss' and kind in ('greet', 'application') and manual.get('date') == day:
+            manual_cap = manual.get('dailyConfirmedCap')
+            held_targets = {a['targetKey'] for a in state['actions'].values() if a['date'] == day
+                            and a['platform'] == 'boss' and a['kind'] in ('greet', 'application') and a['status'] in HELD}
+            if type(manual_cap) is int and len(held_targets) >= manual_cap:
+                raise StoreError('manual-day-limit-reached')
         if cap is not None and used_today(state, day, kind) >= cap:
             raise StoreError("daily-limit-reached")
         platform_default = validate_content_mode(request)
@@ -506,11 +519,13 @@ def begin(root: Path, token: str, request: dict, limit: int | None = None) -> di
                   "policyFingerprint": fingerprint(policy), "profileFingerprint": profile_hash}
         if platform_default:
             action.update(content=None, observedContent=None, contentMode='platform-default')
+        if mobile:
+            action.update(driver='android', submissionStage='prepared', marker=None, diagnostics=[])
         action["events"].append({"at": action["at"], "status": "pending"})
         state["actions"][action_id] = action
         state["runLock"]["heartbeatAt"] = stamp()
         write_json(root / "state.json", state)
-        return {"id": action_id, "status": "pending", "reservedToday": used_today(state, day, kind)}
+        return deepcopy(action) if mobile else {"id": action_id, "status": "pending", "reservedToday": used_today(state, day, kind)}
 
 
 def resolve(root: Path, token: str, action_id: str, status: str, evidence: str) -> dict:
@@ -553,7 +568,7 @@ def check_action(root: Path, token: str, action_id: str) -> dict:
     if action['status'] != 'pending':
         raise StoreError('only-pending-actions-can-submit')
     policy = load_policy(root)
-    if action.get('policyFingerprint') != fingerprint(policy):
+    if action.get('driver') != 'android' and action.get('policyFingerprint') != fingerprint(policy):
         raise StoreError('policy-changed-before-submit')
     if 'profileFingerprint' not in action:
         raise StoreError('profile-fingerprint-missing:reconcile-existing-action-only')
@@ -571,6 +586,9 @@ def check_action(root: Path, token: str, action_id: str) -> dict:
         if not allowed:
             raise StoreError('outside-active-hours')
     check_authorization(policy, action)
+    cap = policy['dailyLimits'][action['kind']]
+    if cap is not None and used_today(state, action['date'], action['kind']) > cap:
+        raise StoreError('daily-limit-reached')
     validate_content_mode(action)
     check_target(policy, state, action)
     thread = state['threads'].get(action['targetKey'], {})
@@ -584,6 +602,81 @@ def check_action(root: Path, token: str, action_id: str) -> dict:
             raise StoreError('attachment-changed-before-submit')
     check_materials(policy, action, action['attachments'])
     return {'ready': True, 'id': action_id, 'kind': action['kind'], 'policyFingerprint': fingerprint(policy)}
+
+
+def start_mobile_action(root: Path, token: str, action_id: str, marker: dict) -> dict:
+    """Commit the possible-click boundary; never hold a storage lock over UI work."""
+    with transaction(root):
+        state = load_state(root)
+        require_token(state, token)
+        action = state['actions'][action_id]
+        if action.get('driver') != 'android' or action.get('submissionStage') != 'prepared' or action['status'] != 'pending':
+            raise StoreError('only-prepared-mobile-action-can-start')
+        if (marker.get('action_id'), marker.get('target_key'), marker.get('account_id'), marker.get('account_label')) != (
+                action_id, action['targetKey'], action.get('accountContextId') or action['accountLabel'], action['accountLabel']):
+            raise StoreError('marker-action-identity-mismatch')
+        checked = check_action(root, token, action_id)
+        manual = state.get('scheduler', {}).get('manualApplicationRun', {})
+        if action['kind'] in ('greet', 'application') and manual.get('date') == action['date']:
+            cap = manual.get('dailyConfirmedCap')
+            reserved = {a['targetKey'] for a in state['actions'].values() if a['date'] == action['date']
+                        and a['kind'] in ('greet', 'application') and a['status'] in HELD}
+            if type(cap) is int and len(reserved) > cap:
+                raise StoreError('manual-day-limit-reached')
+        action.update(submissionStage='in_flight', marker=deepcopy(marker), policyFingerprint=checked['policyFingerprint'], updatedAt=stamp())
+        action['events'].append({'at': action['updatedAt'], 'stage': 'in_flight'})
+        state['runLock']['heartbeatAt'] = stamp()
+        write_json(root / 'state.json', state)
+        return deepcopy(action)
+
+
+def finish_mobile_action(root: Path, token: str, action_id: str, evidence: dict | None,
+                         diagnostics: tuple[str, ...] = ()) -> dict:
+    """Validate evidence and commit delivery. Diagnostics cannot downgrade terminals."""
+    with transaction(root):
+        state = load_state(root)
+        require_token(state, token)
+        action = state['actions'][action_id]
+        if action.get('driver') != 'android':
+            raise StoreError('mobile-action-required')
+        status = evidence['outcome'] if evidence else 'unknown'
+        if status not in ('succeeded', 'failed', 'unknown'):
+            raise StoreError('invalid-mobile-outcome')
+        if evidence and (evidence.get('action_id'), evidence.get('target_key'), evidence.get('account_id'), evidence.get('account_label')) != (
+                action_id, action['targetKey'], action.get('accountContextId') or action['accountLabel'], action['accountLabel']):
+            raise StoreError('delivery-evidence-identity-mismatch')
+        if evidence and not evidence.get('source_id'):
+            raise StoreError('delivery-source-required')
+        if action['status'] in ('succeeded', 'failed'):
+            if evidence and status != action['status']:
+                raise StoreError('conflicting-terminal-evidence')
+            return deepcopy(action)
+        if action.get('submissionStage') not in ('in_flight', 'unknown', 'legacy_unknown'):
+            raise StoreError('unstarted-action-cannot-finish')
+        action.update(status=status, submissionStage=status, updatedAt=stamp())
+        action['diagnostics'] = sorted(set(action.get('diagnostics', [])) | set(diagnostics))
+        if evidence:
+            action.update(deliveryEvidence=deepcopy(evidence), evidence=evidence['source_id'],
+                          observedContent=evidence.get('observed_content'))
+        action['events'].append({'at': action['updatedAt'], 'status': status,
+                                 'evidence': evidence['source_id'] if evidence else 'No matching proof; reconcile original action only.'})
+        state['runLock']['heartbeatAt'] = stamp()
+        write_json(root / 'state.json', state)
+        return deepcopy(action)
+
+
+def cancel_prepared_mobile_action(root: Path, token: str, action_id: str, reason: str) -> dict:
+    """The UI adapter has not been granted permission to click this prepared action."""
+    with transaction(root):
+        state = load_state(root)
+        require_token(state, token)
+        action = state['actions'][action_id]
+        if action.get('driver') != 'android' or action.get('submissionStage') != 'prepared':
+            raise StoreError('only-unstarted-mobile-action-can-cancel')
+        action.update(status='failed', submissionStage='not_submitted', evidence=reason, updatedAt=stamp())
+        action['events'].append({'at': action['updatedAt'], 'stage': 'not_submitted', 'evidence': reason})
+        write_json(root / 'state.json', state)
+        return deepcopy(action)
 
 
 def report(root: Path, date: str | None = None) -> dict:

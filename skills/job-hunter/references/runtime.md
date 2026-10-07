@@ -51,7 +51,7 @@ python scripts/browser_actions.py --data-dir DATA --token TOKEN --session SESSIO
 | `review-detail-group` | 宿主代评时用 `{"groupId":"GROUP_ID","reviews":[{"key":"boss:JOB_ID","decision":"apply","evidence":"JD 判断依据"}]}` 覆盖全部已读项；不发送 |
 | `submit-reviewed-detail` | 原 submit 的 request；重新定位、比较完整 JD、复用决定并发送一次。文本变化返回 review-required，再 review-detail/submit |
 | `dismiss-receipt` | 成功后关闭当前确认层，再处理下一项 |
-| `scroll` | 当前批次与活动详情、外发均收尾后滚动一次，再 capture-list 核对新增 ID |
+| `scroll` | 滚动一次，再 capture-list 核对新增 ID |
 | `finish-list-read` | 已处理到可见末尾且没有新增/加载状态，传 evidence 结束此次读取；不声称结果穷尽 |
 
 恢复或处理单项时保留 `screen`（key、decision、evidence）、`open-detail`（key）、`review-detail`（key、apply/skipped/deferred、evidence）。`defer-detail` 只暂挂中断的详情打开，须先取得本轮新 inspect；不用于取消已发送动作。`revisit-candidate` 接收 key/evidence，把自然可见的 deferred 或遗留候选重新加入批次；成功/unknown 不复审重发。`restore-filters` 恢复查询，列表变化时保留 retainedBatches/backlog。
