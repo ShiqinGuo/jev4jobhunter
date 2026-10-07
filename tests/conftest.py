@@ -7,7 +7,6 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'skills/job-hunter/scripts'))
-from android_support import AndroidCase
 
 
 def pytest_addoption(parser):
@@ -21,6 +20,7 @@ def pytest_configure(config):
     base = base.resolve()
     if base.is_relative_to(ROOT):
         raise pytest.UsageError('--session-output must stay outside the repository')
+    base.mkdir(parents=True, exist_ok=True)
     if config.option.basetemp is None:
         config.option.basetemp = str(base/('pytest-temp-'+uuid.uuid4().hex))
     if config.getoption('--jdk'):
@@ -29,4 +29,5 @@ def pytest_configure(config):
 
 @pytest.fixture
 def case(tmp_path):
+    from android_support import AndroidCase
     return AndroidCase(tmp_path)

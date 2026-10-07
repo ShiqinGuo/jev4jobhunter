@@ -22,7 +22,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: node -e "const {chromium}=require('playwright'); chromium.launch({headless:true}).then(b=>b.close()).catch(e=>{console.error(e);process.exit(1)})"
       - run: python -m pip install "pytest>=8.4,<10"
-      - run: python -B -m pytest -c pytest.ini tests -m "not android" -v
+      - run: python -B -m pytest -c pytest.ini tests --ignore-glob="*/test_android_*.py" -v
       - run: python -B scripts/package.py --output job-hunter-preview.zip
   android:
     strategy:
